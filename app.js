@@ -1,7 +1,5 @@
 // ── CONFIGURATION & ÉTAT ──
-const API_LUX_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:3000/api/lux-prices'
-  : 'https://ton-api-sur-render.com/api/lux-prices'; // À remplacer après déploiement
+const API_LUX_URL = '/api/lux-prices'; 
 
 let stations = [];
 let markers = [];
