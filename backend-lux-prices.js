@@ -1,7 +1,7 @@
 /**
  * backend-lux-prices.js
  * ─────────────────────────────────────────────────────────────
- * Backend Node.js — Scraper prix carburant Luxembourg
+ * Backend Node.js — Scraper prix carburant Luxembourg (V2)
  * ─────────────────────────────────────────────────────────────
  */
 
@@ -11,156 +11,142 @@ const express  = require('express');
 const fetch    = require('node-fetch');
 const cheerio  = require('cheerio');
 
-// ── Config ──────────────────────────────────────────────────
 const PORT          = process.env.PORT || 3000;
-const REFRESH_HOURS = 6;   // Rafraîchissement toutes les 6h
+const REFRESH_HOURS = 6;
 const CACHE_TTL_MS  = REFRESH_HOURS * 60 * 60 * 1000;
 
-// Fallback en dur si toutes les sources échouent
 const FALLBACK_PRICES = {
-  Diesel:    2.005,
-  SP95:      1.700,
-  SP98:      1.814,
-  GPL:       0.930,
-  date_maj:  'fallback',
-  source:    'valeurs codées en dur — scraping échoué',
-  is_fallback: true
+  Diesel: 1.489, SP95: 1.552, SP98: 1.674, GPL: 0.850,
+  date_maj: 'Dernière valeur connue', source: 'Fallback', is_fallback: true
 };
 
-// ── Cache en mémoire ─────────────────────────────────────────
-let cache = {
-  data:       null,
-  fetched_at: null,
-  expires_at: null
-};
+let cache = { data: null, fetched_at: null, expires_at: null };
 
-// ── Sources de scraping ──────────────────────────────────────
+// ── FONCTIONS DE SCRAPING OPTIMISÉES ─────────────────────────
 
 async function scrapeCarbuCom() {
   const url = 'https://carbu.com/luxembourg/';
-  const headers = { 'User-Agent': 'Mozilla/5.0 (compatible; PriceBot/1.0)' };
+  // Simulation d'un vrai navigateur pour éviter le blocage Render
+  const headers = { 
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8'
+  };
 
-  const res = await fetch(url, { headers, timeout: 10000 });
+  const res = await fetch(url, { headers, timeout: 15000 });
   if (!res.ok) throw new Error(`carbu.com HTTP ${res.status}`);
   const html = await res.text();
   const $ = cheerio.load(html);
 
   const prices = {};
-  const fuelMap = {
-    'diesel': 'Diesel', 'sp95': 'SP95', 'sp98': 'SP98', 'gpl': 'GPL'
-  };
-
-  $('tr, .fuel-row').each((_, el) => {
+  
+  // On parcourt toutes les lignes ou blocs susceptibles de contenir un prix
+  $('tr, div, .price-box').each((_, el) => {
     const text = $(el).text().toLowerCase();
-    for (const [key, label] of Object.entries(fuelMap)) {
-      if (text.includes(key) && !prices[label]) {
-        const match = text.match(/(\d[,\.]\d{2,3})/g);
-        if (match) {
-          prices[label] = parseFloat(match[match.length - 1].replace(',', '.'));
-        }
-      }
+    // Regex pour capturer un prix (ex: 1,522 ou 1.522)
+    const match = text.match(/(\d[,\.]\d{3})/); 
+    
+    if (match) {
+      const val = parseFloat(match[1].replace(',', '.'));
+      if (val < 0.5 || val > 3) return; // Sécurité prix incohérent
+
+      if (text.includes('diesel') && !prices['Diesel']) prices['Diesel'] = val;
+      if ((text.includes('95') || text.includes('e10')) && !prices['SP95']) prices['SP95'] = val;
+      if (text.includes('98') && !prices['SP98']) prices['SP98'] = val;
+      if ((text.includes('gpl') || text.includes('lpg')) && !prices['GPL']) prices['GPL'] = val;
     }
   });
 
-  if (!Object.keys(prices).length) throw new Error('carbu.com : aucun prix extrait');
+  if (!prices['Diesel'] && !prices['SP95']) throw new Error('Aucun prix extrait de carbu.com');
   return prices;
 }
 
 async function scrapeGouvernementLu() {
-  const now  = new Date();
-  const year = now.getFullYear();
-  const months = [now.getMonth() + 1, now.getMonth() || 12];
-  const headers = { 'User-Agent': 'Mozilla/5.0' };
+  const now = new Date();
+  const url = `https://gouvernement.lu/fr/actualites/toutes_actualites/communiques/${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/prix-carburants.html`;
+  
+  const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' };
 
-  for (const month of months) {
-    const mm = String(month).padStart(2, '0');
-    const url = `https://gouvernement.lu/fr/actualites/toutes_actualites/communiques/${year}/${mm}/prix-carburants.html`;
+  try {
+    const res = await fetch(url, { headers, timeout: 10000 });
+    if (!res.ok) throw new Error(`gouvernement.lu HTTP ${res.status}`);
+    const html = await res.text();
+    const $ = cheerio.load(html);
+    const prices = {};
 
-    try {
-      const res = await fetch(url, { headers, timeout: 8000 });
-      if (!res.ok) continue;
-      const html = await res.text();
-      const $ = cheerio.load(html);
-      const prices = {};
-      
-      $('table tr').each((_, row) => {
-        const cells = $(row).find('td, th');
-        if (cells.length < 2) return;
-        const label = $(cells[0]).text().toLowerCase();
-        if (label.includes('diesel')) prices['Diesel'] = parseFloat($(cells[cells.length-1]).text().replace(',', '.').replace(/[^\d.]/g, ''));
-        if (label.includes('95')) prices['SP95'] = parseFloat($(cells[cells.length-1]).text().replace(',', '.').replace(/[^\d.]/g, ''));
-        if (label.includes('98')) prices['SP98'] = parseFloat($(cells[cells.length-1]).text().replace(',', '.').replace(/[^\d.]/g, ''));
-      });
+    $('table tr').each((_, row) => {
+      const label = $(row).find('td').first().text().toLowerCase();
+      const priceText = $(row).find('td').last().text();
+      const valMatch = priceText.match(/(\d[,\.]\d{3})/);
 
-      if (Object.keys(prices).length >= 2) return prices;
-    } catch (err) {}
+      if (valMatch) {
+        const val = parseFloat(valMatch[1].replace(',', '.'));
+        if (label.includes('diesel')) prices['Diesel'] = val;
+        if (label.includes('95')) prices['SP95'] = val;
+        if (label.includes('98')) prices['SP98'] = val;
+      }
+    });
+
+    if (Object.keys(prices).length > 0) return prices;
+    throw new Error('Structure table gouvernement non trouvée');
+  } catch (e) {
+    throw new Error(`Gouvernement.lu : ${e.message}`);
   }
-  throw new Error('gouvernement.lu : échec');
 }
 
-// ── Orchestration & Cache ────────────────────────────────────
+// ── GESTION CACHE & API ──────────────────────────────────────
 
-async function fetchLuxPrices() {
+async function fetchAll() {
   const now = new Date();
-  const sources = [{ name: 'gouvernement.lu', fn: scrapeGouvernementLu }, { name: 'carbu.com', fn: scrapeCarbuCom }];
+  const sources = [
+    { name: 'carbu.com', fn: scrapeCarbuCom },
+    { name: 'gouvernement.lu', fn: scrapeGouvernementLu }
+  ];
 
   for (const source of sources) {
     try {
+      console.log(`[scraping] Tentative via ${source.name}...`);
       const prices = await source.fn();
+      console.log(`[scraping] ✓ Succès avec ${source.name}`);
       return {
         ...prices,
         date_maj: now.toLocaleDateString('fr-FR'),
         source: source.name,
-        is_fallback: false,
         fetched_at: now.toISOString()
       };
-    } catch (err) { console.warn(`✗ ${source.name} : ${err.message}`); }
+    } catch (err) {
+      console.warn(`[scraping] ✗ Échec ${source.name}: ${err.message}`);
+    }
   }
   return { ...FALLBACK_PRICES, fetched_at: now.toISOString() };
 }
 
-async function getOrRefreshCache() {
-  const now = Date.now();
-  if (cache.data && cache.expires_at && now < cache.expires_at) return cache.data;
-  const data = await fetchLuxPrices();
-  cache = { data, fetched_at: now, expires_at: now + CACHE_TTL_MS };
-  return data;
-}
-
-// ── API Express ──────────────────────────────────────────────
-
 const app = express();
 
-// 1. Configuration CORS
+// CORS & Fichiers statiques
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Content-Type');
   next();
 });
 
-// 2. MODIFICATION : Servir les fichiers statiques (index.html, app.js, style.css)
-// C'est cette ligne qui permet à Render d'afficher ton site sur l'URL principale
 app.use(express.static(__dirname));
 
-// 3. Routes API
+// Routes
 app.get('/api/lux-prices', async (req, res) => {
-  try {
-    const data = await getOrRefreshCache();
-    res.json({ ...data, cache_expires_at: new Date(cache.expires_at).toISOString() });
-  } catch (err) {
-    res.status(500).json({ error: 'Erreur interne', details: err.message });
+  const now = Date.now();
+  if (!cache.data || now > cache.expires_at) {
+    cache.data = await fetchAll();
+    cache.expires_at = now + CACHE_TTL_MS;
+    cache.fetched_at = now;
   }
+  res.json(cache.data);
 });
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', source: cache.data?.source });
+app.get('/api/health', (req, res) => res.json({ status: 'ok', source: cache.data?.source }));
+
+// Démarrage
+app.listen(PORT, () => {
+  console.log(`\n⛽ Serveur carburant lancé sur le port ${PORT}`);
+  console.log(`Accès local : http://localhost:${PORT}\n`);
 });
-
-// ── Démarrage ────────────────────────────────────────────────
-
-app.listen(PORT, async () => {
-  console.log(`⛽ Serveur démarré sur le port ${PORT}`);
-  try { await getOrRefreshCache(); } catch (err) {}
-});
-
-process.on('SIGTERM', () => process.exit(0));
