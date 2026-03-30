@@ -1,0 +1,19 @@
+{
+  "name": "carburant-metz-luxembourg-backend",
+  "version": "1.0.0",
+  "description": "Backend scraper prix carburant Luxembourg — API REST pour le frontend Metz/LU",
+  "main": "backend-lux-prices.js",
+  "scripts": {
+    "start": "node backend-lux-prices.js",
+    "dev": "node --watch backend-lux-prices.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,16 @@
+# Configuration automatique des fins de ligne
+* text=auto
+
+# S'assurer que les fichiers texte importants conservent le format LF (standard web/serveur)
+*.js text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+
+# Forcer les fichiers Windows spécifiques (si nécessaire) en CRLF
+*.bat text eol=crlf
+
+# Garder les fichiers binaires intacts (images, pdf, etc.)
+*.png binary
+*.jpg binary
+*.gif binary

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Carburant Metz – Luxembourg</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700&display=swap" rel="stylesheet"/>
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    Carburant Metz · Luxembourg
+  </div>
+  
+  <div style="display: flex; gap: 12px; align-items: center;">
+    <button class="pill" onclick="locateUser()" style="border-color: var(--accent2); color: var(--accent2);">
+      📍 Me localiser
+    </button>
+    
+    <div class="status-chip">
+      <div class="live-dot loading" id="live-dot"></div>
+      <span id="status-text">Chargement…</span>
+    </div>
+  </div>
+</header>
+
+<div class="main">
+  <div class="sidebar">
+    <div class="sidebar-inner">
+
+      <div class="savings hidden" id="savings-banner">
+        <div>
+          <div style="font-size:11px;color:rgba(74,222,128,.7);margin-bottom:2px">Économie estimée au Luxembourg</div>
+          <div class="savings-sub" id="savings-note">Pour un plein de 50 L</div>
+        </div>
+        <div class="savings-num" id="savings-val">—</div>
+      </div>
+
+      <div class="section-label">Comparaison des prix</div>
+      <div class="price-grid">
+        <div class="price-card">
+          <div class="price-card-title">France · Moy. Moselle</div>
+          <div id="fr-prices"><div style="color:var(--muted)">…</div></div>
+        </div>
+        <div class="price-card">
+          <div class="price-card-title">Luxembourg</div>
+          <div id="lu-prices"></div>
+          <div class="lu-note">
+            Maj manuelle · <a href="https://carbu.com/luxembourg/" target="_blank">carbu.com</a>
+            <span id="lu-date-label"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-label">Stations Moselle</div>
+      <div class="filters">
+        <button class="pill active" onclick="setFuel(this,'Diesel')">Diesel</button>
+        <button class="pill" onclick="setFuel(this,'SP95')">SP95</button>
+        <button class="pill" onclick="setFuel(this,'SP98')">SP98</button>
+        <button class="pill" onclick="setFuel(this,'Tous')">Tous</button>
+      </div>
+      <input type="text" id="search" placeholder="Filtrer par ville…" oninput="renderList()"/>
+      <div class="count-label" id="count-label">—</div>
+      
+      <div class="station-list" id="station-list">
+        <div class="empty">Chargement des stations…</div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="map-container">
+    <div id="map"></div>
+    <div class="map-legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#4ade80"></div> Station ouverte</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ff5a5a"></div> Rupture signalée</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f0c040"></div> Moins cher que LU</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#60a5fa"></div> Luxembourg (ref)</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
