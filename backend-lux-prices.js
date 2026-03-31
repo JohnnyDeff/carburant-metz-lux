@@ -15,80 +15,59 @@
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.static(__dirname));
+app.use(cors());
+app.use(express.static('public')); // Pour servir ton index.html, app.js, etc.
 
-async function getLiveLuxPrices() {
+// --- ROUTE LUXEMBOURG ---
+app.get('/api/lux-prices', async (req, res) => {
     try {
-        // On interroge le site de référence pour le Luxembourg
-        const { data } = await axios.get('https://carbu.com/luxembourg/index.php/prixmaximum', {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+        const response = await axios.get('https://familiale.lu/petrol-prices');
+        const $ = cheerio.load(response.data);
+        let prices = {};
+        $('.price-item').each((i, el) => {
+            const name = $(el).find('.fuel-name').text().trim();
+            const price = parseFloat($(el).find('.fuel-price').text().replace(',', '.'));
+            if (name.includes('Gazole') || name.includes('Diesel')) prices.Diesel = price;
+            if (name.includes('95')) prices.SP95 = prices.E10 = price;
+            if (name.includes('98')) prices.SP98 = price;
         });
-        
-        const $ = cheerio.load(data);
-        // On extrait tout le texte de la page pour le fouiller
-        const text = $('body').text().replace(/\s+/g, ' ');
+        res.json(prices);
+    } catch (e) { res.status(500).json({ error: "Erreur Lux" }); }
+});
 
-        // Petite fonction pour chercher "Diesel ... 2,005" dans le texte
-        const extractPrice = (keyword) => {
-            const regex = new RegExp(`${keyword}.*?([0-9],[0-9]{3})`, 'i');
-            const match = text.match(regex);
-            return match ? parseFloat(match[1].replace(',', '.')) : null;
-        };
-
-        return {
-            Diesel: extractPrice('Diesel') || 2.005,
-            SP95: extractPrice('Super 95') || 1.700,
-            SP98: extractPrice('Super 98') || 1.814,
-            GPL: extractPrice('LPG') || 0.930
-        };
-    } catch (e) {
-        console.error("Erreur de scraping, utilisation des prix de secours:", e.message);
-        return { Diesel: 2.005, SP95: 1.700, SP98: 1.814, GPL: 0.930 };
-    }
-}
-
-// --- PRIX BELGIQUE (Energiafed.be) ---
+// --- ROUTE BELGIQUE ---
 app.get('/api/belgium-prices', async (req, res) => {
     try {
         const response = await axios.get('https://www.energiafed.be/fr/prix-maximums');
         const $ = cheerio.load(response.data);
-        
-        // On cherche les prix dans le tableau officiel
-        // Note : Les sélecteurs peuvent varier, on vise les cellules de prix
-        let bePrices = {
-            Diesel: 1.80, // Valeurs par défaut si le scrap échoue
-            SP95: 1.75,
-            SP98: 1.85,
-            E10: 1.75
-        };
-
-        // Logique de scraping simplifiée (à ajuster selon la structure HTML exacte)
+        let prices = { Diesel: 1.75, SP95: 1.70, E10: 1.70, SP98: 1.85, GPL: 0.80 };
         $('table tr').each((i, el) => {
-            const label = $(el).find('td').first().text().toLowerCase();
-            const price = parseFloat($(el).find('td').eq(1).text().replace(',', '.'));
-            
-            if (label.includes('diesel')) bePrices.Diesel = price;
-            if (label.includes('95')) { bePrices.SP95 = price; bePrices.E10 = price; }
-            if (label.includes('98')) bePrices.SP98 = price;
+            const text = $(el).text().toLowerCase();
+            const val = parseFloat($(el).find('td').eq(1).text().replace(',', '.'));
+            if (text.includes('diesel') && !isNaN(val)) prices.Diesel = val;
+            if (text.includes('95') && !isNaN(val)) { prices.SP95 = val; prices.E10 = val; }
+            if (text.includes('98') && !isNaN(val)) prices.SP98 = val;
         });
+        res.json(prices);
+    } catch (e) { res.json(prices); } // Renvoie les prix par défaut en cas d'erreur
+});
 
-        res.json(bePrices);
+// --- PROXY FRANCE (Le tunnel anti-blocage) ---
+app.get('/api/france-proxy', async (req, res) => {
+    try {
+        const { lat, lng } = req.query;
+        // Syntaxe exacte pour Opendatasoft
+        const url = `https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records?limit=150&where=distance(geom, geom'POINT(${lng} ${lat})', 50000)`;
+        
+        const response = await axios.get(url);
+        res.json(response.data);
     } catch (error) {
-        console.error("Erreur Belgique:", error);
-        res.status(500).send("Erreur lors de la récupération des prix belges");
+        res.status(500).json({ error: "L'API France ne répond pas" });
     }
 });
 
-app.get('/api/lux-prices', async (req, res) => {
-    const prices = await getLiveLuxPrices();
-    res.json({ 
-        ...prices, 
-        date_maj: new Date().toLocaleDateString('fr-FR'),
-        source: "Tarifs Maxima Officiels (Temps Réel)"
-    });
-});
-
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Backend Temps Réel sur le port ${PORT}`));
+app.listen(PORT, () => console.log(`Serveur démarré sur le port ${PORT}`));
