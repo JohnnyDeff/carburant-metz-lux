@@ -48,4 +48,4 @@ app.get('/api/lux-prices', async (req, res) => {
     res.json({ Diesel: d, SP95: p95, SP98: p98, GPL: gpl });
 });
 
-app.listen(PORT, () => console.log(`Serveur prêt port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Serveur prêt sur le port ${PORT} (0.0.0.0)`));
