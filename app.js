@@ -3,7 +3,7 @@ const TOMTOM_KEY = 'CRDxsSiKnAMIpuYJQf3MNs78q25zKLBJ';
 const API_LUX_URL = '/api/lux-prices';
 const FR_API_URL = "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records";
 
-let luxePrices = { Diesel: 1.45, SP95: 1.55, SP98: 1.65, GPL: 0.85 };
+let luxePrices = { Diesel: 1.45, SP95: 1.55, SP98: 1.65, GPL: 0.85 }; // Secours
 let activeFuel = 'Diesel';
 let markers = [];
 let stationsList = [];
@@ -40,12 +40,12 @@ async function loadData() {
                 const lon = s.geom?.lon || (s.geometry?.coordinates ? s.geometry.coordinates[0] : null) || s.longitude;
                 
                 if (lat && lon) {
-                    // CORRECTION NOM : Si name est vide, on prend la marque, l'adresse ou la ville
                     const finalName = s.name || s.marque || s.adresse || s.ville || "Station Service";
 
                     stationsList.push({
                         name: finalName,
                         lat: lat, lon: lon, country: 'FR',
+                        // On intègre ici PROPREMENT les 6 carburants
                         prices: {
                             Diesel: s.gazole_prix,
                             SP95: s.sp95_prix,
@@ -54,12 +54,11 @@ async function loadData() {
                             E10: s.e10_prix,
                             E85: s.e85_prix
                         },
-                        // CORRECTION RUPTURE : On vérifie si une date de début de rupture existe
                         ruptures: {
                             Diesel: !!s.gazole_rupture_debut,
                             SP95: !!s.sp95_rupture_debut,
                             SP98: !!s.sp98_rupture_debut,
-                            GPL: !!s.gpl_rupture_debut
+                            GPL: !!s.gpl_rupture_debut,
                             E10: !!s.e10_rupture_debut,
                             E85: !!s.e85_rupture_debut
                         }
@@ -69,7 +68,7 @@ async function loadData() {
         }
     } catch (e) { console.error("Erreur API France:", e); }
 
-    // LUXEMBOURG (TomTom)
+    // LUXEMBOURG
     try {
         const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=49.61&lon=6.13&radius=30000&limit=100`);
         const ttData = await ttRes.json();
@@ -81,7 +80,7 @@ async function loadData() {
                         name: poi.poi.name || "Station LUX",
                         lat: poi.position.lat, lon: poi.position.lon, country: 'LU',
                         prices: luxePrices,
-                        ruptures: {} // TomTom ne donne pas les ruptures
+                        ruptures: {}
                     });
                 }
             });
@@ -91,7 +90,7 @@ async function loadData() {
     updateDisplay();
 }
 
-// ── AFFICHAGE CARTE ET LISTE (Gestion des Ruptures) ──
+// ── AFFICHAGE CARTE ET LISTE ──
 function updateDisplay() {
     markers.forEach(m => map.removeLayer(m));
     markers = [];
@@ -102,7 +101,6 @@ function updateDisplay() {
         const isRupture = s.ruptures && s.ruptures[activeFuel];
         
         if (isRupture) {
-            // Affichage en ROUGE pour les ruptures de stock
             const m = L.circleMarker([s.lat, s.lon], { radius: 8, fillColor: '#ef4444', color: "#000", weight: 1, fillOpacity: 0.9 })
              .addTo(map)
              .bindPopup(`<b>${s.name}</b><br><span style="color:#ef4444; font-weight:bold; font-size:14px;">⚠️ EN RUPTURE</span>`);
@@ -116,7 +114,6 @@ function updateDisplay() {
             `;
         } 
         else if (price) {
-            // Affichage normal pour les stations ouvertes
             const luxRefPrice = luxePrices[activeFuel] || 1.5;
             let color = s.country === 'LU' ? '#60a5fa' : (price < luxRefPrice ? '#f0c040' : '#4ade80');
             const src = s.country === 'LU' ? "Luxembourg (National)" : "France (Officiel)";
@@ -150,7 +147,8 @@ function setFuel(btn, fuel) {
 function renderLuPrices() {
     const el = document.getElementById('lu-prices');
     if (!el) return;
-    const fuels = ['Diesel', 'SP95', 'SP98', 'GPL'];
+    // Mise à jour de l'affichage avec tous les carburants
+    const fuels = ['Diesel', 'SP95', 'E10', 'SP98', 'GPL', 'E85'];
     el.innerHTML = fuels.map(f => `
         <div class="price-row" style="display:flex; justify-content:space-between;">
             <span>${f}</span>
