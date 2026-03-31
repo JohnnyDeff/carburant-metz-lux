@@ -5,19 +5,19 @@ const FR_API_URL = "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datas
 
 let luxePrices = { Diesel: 1.45, SP95: 1.55, SP98: 1.65, GPL: 0.85 }; // Prix de secours
 let activeFuel = 'Diesel';
-let stationsList = []; // Stocke les données pour la liste HTML
+let stationsList = [];
 
 // ── INITIALISATION CARTE ──
-const map = L.map('map').setView([49.35, 6.15], 10);
+// Vue légèrement reculée pour bien voir le Grand Est et le Luxembourg
+const map = L.map('map').setView([48.95, 6.35], 8);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; CartoDB | TomTom | OpenData'
 }).addTo(map);
 
 // ── INITIALISATION CLUSTERING ──
-// Ce groupe va automatiquement regrouper les stations trop proches
 const markerCluster = L.markerClusterGroup({
     chunkedLoading: true,
-    spiderfyOnMaxZoom: true // Déploie les stations en toile d'araignée si on zoome au maximum
+    spiderfyOnMaxZoom: true
 });
 
 // ── GÉOLOCALISATION ──
@@ -31,9 +31,7 @@ map.on('locationfound', (e) => {
 // ── TRADUCTEUR DE SERVICES EN EMOJIS ──
 function getServicesIcons(servicesData, is24_24) {
     let icons = '';
-    // Gestion de l'automate 24/24
     if (is24_24 === "Oui" || is24_24 === true) icons += '🕒<span style="font-size:10px">24/7</span> ';
-    
     if (!servicesData) return icons;
 
     const text = Array.isArray(servicesData) ? servicesData.join(" ").toLowerCase() : servicesData.toLowerCase();
@@ -59,9 +57,12 @@ async function loadData() {
 
     stationsList = []; 
 
-    // 2. FRANCE (Via API Gouv)
+    // 2. FRANCE - FILTRÉ SUR LE GRAND EST (Environ 900 stations)
     try {
-        const frRes = await fetch(`${FR_API_URL}?limit=100&where=code_departement%3D'57'`);
+        // Liste des départements du Grand Est
+        const deptsGrandEst = "('08','10','51','52','54','55','57','67','68','88')";
+        // On augmente la limite à 1500 pour être sûr de tout capter dans la région
+        const frRes = await fetch(`${FR_API_URL}?limit=1500&where=code_departement in ${deptsGrandEst}`);
         const frData = await frRes.json();
         
         if (frData.results) {
@@ -124,9 +125,7 @@ async function loadData() {
 
 // ── AFFICHAGE CARTE ET LISTE (AVEC CLUSTERING) ──
 function updateDisplay() {
-    // On vide le groupe de clusters (remplace la boucle sur markers)
     markerCluster.clearLayers();
-    
     let listHTML = '';
 
     stationsList.forEach(s => {
@@ -134,11 +133,9 @@ function updateDisplay() {
         const isRupture = s.ruptures && s.ruptures[activeFuel];
         
         if (isRupture) {
-            // Création du point RUPTURE (On ne l'ajoute pas à la map, on le garde en mémoire)
             const m = L.circleMarker([s.lat, s.lon], { radius: 8, fillColor: '#ef4444', color: "#000", weight: 1, fillOpacity: 0.9 })
              .bindPopup(`<b>${s.name}</b><br><span style="color:#ef4444; font-weight:bold; font-size:14px;">⚠️ EN RUPTURE</span>`);
             
-            // ON AJOUTE AU CLUSTER
             markerCluster.addLayer(m);
 
             listHTML += `
@@ -149,7 +146,6 @@ function updateDisplay() {
             `;
         } 
         else if (price) {
-            // Création du point NORMAL
             const luxRefPrice = luxePrices[activeFuel] || 1.5;
             let color = s.country === 'LU' ? '#60a5fa' : (price < luxRefPrice ? '#f0c040' : '#4ade80');
             const src = s.country === 'LU' ? "Luxembourg (National)" : "France (Officiel)";
@@ -166,7 +162,6 @@ function updateDisplay() {
             const m = L.circleMarker([s.lat, s.lon], { radius: 8, fillColor: color, color: "#000", weight: 1, fillOpacity: 0.9 })
              .bindPopup(popupContent);
             
-            // ON AJOUTE AU CLUSTER
             markerCluster.addLayer(m);
 
             listHTML += `
@@ -183,7 +178,6 @@ function updateDisplay() {
         }
     });
 
-    // Ajout du cluster entier à la carte en une seule fois
     map.addLayer(markerCluster);
 
     const listEl = document.getElementById('station-list');
