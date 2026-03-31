@@ -20,7 +20,6 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.static(__dirname));
 
-// IDs des ressources Statec fournies
 const RESOURCES = {
     Diesel: "99d5a6d1-e67e-4b4e-a004-4a0245b2a4b1",
     SP95:   "09e17ebe-5da1-46ad-a247-79010a017154",
@@ -30,15 +29,16 @@ const RESOURCES = {
 
 async function getPrice(id) {
     try {
-        // 1. Appel API pour avoir l'URL du fichier actuel
         const meta = await axios.get(`https://data.public.lu/api/1/datasets/economie-totale-et-prix-prix-prix-de-lenergie/resources/${id}/`);
-        // 2. Récupération du JSON
         const dataRes = await axios.get(meta.data.url);
         const data = dataRes.data;
-        // 3. Extraction de la dernière valeur (Format Statec: liste d'objets)
+
+        // Sécurité : Si c'veut un tableau (historique), on prend le dernier. Sinon, on prend la valeur directe.
         if (Array.isArray(data) && data.length > 0) {
             const latest = data[data.length - 1];
             return parseFloat(latest.value || latest.prix || 0);
+        } else if (data.value || data.prix) {
+            return parseFloat(data.value || data.prix);
         }
         return null;
     } catch (e) {
@@ -49,25 +49,14 @@ async function getPrice(id) {
 
 app.get('/api/lux-prices', async (req, res) => {
     try {
-        // On récupère tout en même temps
         const [d, p95, p98, gpl] = await Promise.all([
-            getPrice(RESOURCES.Diesel),
-            getPrice(RESOURCES.SP95),
-            getPrice(RESOURCES.SP98),
-            getPrice(RESOURCES.GPL)
+            getPrice(RESOURCES.Diesel), getPrice(RESOURCES.SP95),
+            getPrice(RESOURCES.SP98), getPrice(RESOURCES.GPL)
         ]);
-
-        res.json({
-            Diesel: d,
-            SP95: p95,
-            SP98: p98,
-            GPL: gpl,
-            date_maj: new Date().toLocaleDateString('fr-FR'),
-            source: "STATEC Live"
-        });
+        res.json({ Diesel: d, SP95: p95, SP98: p98, GPL: gpl, date_maj: new Date().toLocaleDateString('fr-FR') });
     } catch (error) {
-        res.status(500).json({ error: "Erreur synchronisation Statec" });
+        res.status(500).json({ error: "Erreur Statec" });
     }
 });
 
-app.listen(PORT, () => console.log(`Backend opérationnel sur le port ${PORT}`));
+app.listen(PORT, () => console.log(`Backend OK sur ${PORT}`));
