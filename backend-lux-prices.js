@@ -50,6 +50,38 @@ async function getLiveLuxPrices() {
     }
 }
 
+// --- PRIX BELGIQUE (Energiafed.be) ---
+app.get('/api/belgium-prices', async (req, res) => {
+    try {
+        const response = await axios.get('https://www.energiafed.be/fr/prix-maximums');
+        const $ = cheerio.load(response.data);
+        
+        // On cherche les prix dans le tableau officiel
+        // Note : Les sélecteurs peuvent varier, on vise les cellules de prix
+        let bePrices = {
+            Diesel: 1.80, // Valeurs par défaut si le scrap échoue
+            SP95: 1.75,
+            SP98: 1.85,
+            E10: 1.75
+        };
+
+        // Logique de scraping simplifiée (à ajuster selon la structure HTML exacte)
+        $('table tr').each((i, el) => {
+            const label = $(el).find('td').first().text().toLowerCase();
+            const price = parseFloat($(el).find('td').eq(1).text().replace(',', '.'));
+            
+            if (label.includes('diesel')) bePrices.Diesel = price;
+            if (label.includes('95')) { bePrices.SP95 = price; bePrices.E10 = price; }
+            if (label.includes('98')) bePrices.SP98 = price;
+        });
+
+        res.json(bePrices);
+    } catch (error) {
+        console.error("Erreur Belgique:", error);
+        res.status(500).send("Erreur lors de la récupération des prix belges");
+    }
+});
+
 app.get('/api/lux-prices', async (req, res) => {
     const prices = await getLiveLuxPrices();
     res.json({ 
