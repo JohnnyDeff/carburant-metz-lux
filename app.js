@@ -2,28 +2,26 @@
 const TOMTOM_KEY = 'CRDxsSiKnAMIpuYJQf3MNs78q25zKLBJ';
 const API_LUX_URL = '/api/lux-prices';
 const API_BE_URL = '/api/belgium-prices';
-const FR_API_URL = "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records";
+const API_FR_PROXY = '/api/france-proxy';
 
 let luxePrices = { Diesel: 1.55, SP95: 1.65, E10: 1.62, SP98: 1.78, GPL: 0.95, E85: 0.85 };
 let bePrices = { Diesel: 1.75, SP95: 1.70, E10: 1.70, SP98: 1.85, GPL: 0.80, E85: 0.90 };
 let activeFuel = 'Diesel';
 let stationsList = [];
-let searchTimer; // Pour le délai de rafraîchissement (debounce)
+let searchTimer;
 
 // ── INITIALISATION CARTE ──
 const map = L.map('map').setView([49.45, 6.15], 10); 
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
 const markerCluster = L.markerClusterGroup({ chunkedLoading: true });
 
-// ── EVENEMENTS CARTE (INTERACTIF) ──
-// Dès que la carte a fini de bouger ou de zoomer, on relance la recherche
+// ── INTERACTIVITÉ ──
 map.on('moveend', () => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
         const center = map.getCenter();
-        console.log("📍 Nouveau centre détecté :", center.lat, center.lng);
         loadData(center.lat, center.lng);
-    }, 600); // On attend 600ms après l'arrêt du mouvement
+    }, 700); // Délai de confort pour l'API
 });
 
 function getIcons(serv, h24) {
@@ -36,28 +34,20 @@ function getIcons(serv, h24) {
     return i;
 }
 
-// ── CHARGEMENT DYNAMIQUE ──
+// ── CHARGEMENT ──
 async function loadData(lat = 49.45, lng = 6.15) {
-    // 1. PRIX NATIONAUX (On les charge une seule fois au début ou à chaque fois si besoin)
+    // 1. Mise à jour des prix nationaux
     try {
-        const [resL, resB] = await Promise.all([
-            fetch(API_LUX_URL).catch(() => null),
-            fetch(API_BE_URL).catch(() => null)
-        ]);
-        if (resL && resL.ok) luxePrices = await resL.json();
-        if (resB && resB.ok) bePrices = await resB.json();
+        const [resL, resB] = await Promise.all([fetch(API_LUX_URL), fetch(API_BE_URL)]);
+        if (resL.ok) luxePrices = await resL.json();
+        if (resB.ok) bePrices = await resB.json();
     } catch (e) { console.warn("Utilisation prix secours"); }
 
     stationsList = [];
 
-    // 2. FRANCE (Rayon de 50km autour du CENTRE DE L'ÉCRAN)
+    // 2. FRANCE (Via ton Proxy)
     try {
-        // On repasse en mode "distance" car c'est ce qui permet l'interactivité
-        const params = new URLSearchParams({
-            limit: 150,
-            where: `distance(geom, geom'POINT(${lng} ${lat})', 50000)`
-        });
-        const frRes = await fetch(`${FR_API_URL}?${params.toString()}`);
+        const frRes = await fetch(`${API_FR_PROXY}?lat=${lat}&lng=${lng}`);
         const frData = await frRes.json();
         
         if (frData.results) {
@@ -75,9 +65,9 @@ async function loadData(lat = 49.45, lng = 6.15) {
                 }
             });
         }
-    } catch (e) { console.error("Erreur France:", e); }
+    } catch (e) { console.error("Erreur France via Proxy:", e); }
 
-    // 3. TOMTOM (LUX & BE - Autour du CENTRE DE L'ÉCRAN)
+    // 3. TOMTOM (LUX & BE)
     try {
         const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=${lat}&lon=${lng}&radius=50000&limit=100`);
         const ttData = await ttRes.json();
@@ -111,9 +101,9 @@ function updateDisplay() {
             markerCluster.addLayer(m);
             
             listHTML += `<div class="station-item" onclick="map.setView([${s.lat}, ${s.lon}], 14)">
-                <div style="display:flex; justify-content:space-between;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
                     <span><b>${s.name}</b><br><small>${s.icons}</small></span>
-                    <b style="color:${col}">${p.toFixed(3)}€</b>
+                    <b style="color:${col};">${p.toFixed(3)}€</b>
                 </div></div>`;
         }
     });
@@ -139,5 +129,5 @@ function setFuel(btn, fuel) {
 
 function locateUser() { map.locate({setView: true, maxZoom: 13}); }
 
-// Premier chargement
+// Lancement initial
 loadData();
