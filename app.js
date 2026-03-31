@@ -37,7 +37,7 @@ async function loadData() {
 
     // 1. FRANCE (54, 55, 57)
     try {
-        const urlFR = `${FR_API_URL}?limit=300&where=code_departement in ('54','55','57')`;
+        const urlFR = `${FR_API_URL}?limit=200&where=code_departement in ('54','55','57')`;
         const frRes = await fetch(urlFR);
         const frData = await frRes.json();
         
