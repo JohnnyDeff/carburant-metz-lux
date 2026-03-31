@@ -51,6 +51,8 @@ async function loadData() {
                             SP95: s.sp95_prix,
                             SP98: s.sp98_prix,
                             GPL: s.gpl_prix
+                            E10: s.e10_prix,
+                            E85: s.e85_prix
                         },
                         // CORRECTION RUPTURE : On vérifie si une date de début de rupture existe
                         ruptures: {
@@ -58,6 +60,8 @@ async function loadData() {
                             SP95: !!s.sp95_rupture_debut,
                             SP98: !!s.sp98_rupture_debut,
                             GPL: !!s.gpl_rupture_debut
+                            E10: !!s.e10_rupture_debut,
+                            E85: !!s.e85_rupture_debut
                         }
                     });
                 }
