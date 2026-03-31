@@ -38,7 +38,7 @@ async function loadData() {
         const lat = 49.45;
         const dist = 50000; // 50km en mètres
         
-        const url = `${FR_API_URL}?limit=100&where=distance(geom, geom'POINT(${lon} ${lat})', ${dist})`;
+        const url = `${FR_API_URL}?limit=100&where=distance(geom, geom'POINT(49.45 6.15)', 50000)`;
         
         console.log("Tentative URL France :", url); // Pour vérifier dans la console
 
