@@ -13,13 +13,16 @@
  */
 
 'use strict';
+
 const express = require('express');
 const axios   = require('axios');
 const cheerio = require('cheerio');
+
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.static(__dirname));
+
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     next();
@@ -29,8 +32,13 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 let cache = { data: null, expires_at: 0 };
 
 const FALLBACK = {
-    Diesel: 1.418, SP95: 1.540, SP98: 1.684, GPL: 0.820,
-    date_maj: '01/03/2026', source: 'Fallback statique', is_fallback: true
+    Diesel: 1.418,
+    SP95:   1.540,
+    SP98:   1.684,
+    GPL:    0.820,
+    date_maj: '01/03/2026',
+    source: 'Fallback statique (Backend Offline)',
+    is_fallback: true
 };
 
 async function fetchDataPublicLu() {
@@ -41,26 +49,31 @@ async function fetchDataPublicLu() {
 
     const dsRes = await axios.get(`https://data.public.lu/api/1/datasets/${dataset.id}/`);
     const resource = dsRes.data.resources.find(r => r.format === 'csv' || r.format === 'json');
-    const fileRes = await axios.get(resource.url);
+    if (!resource) throw new Error('Ressource introuvable');
     
-    // Simplification : on retourne un objet propre pour le front
-    return { Diesel: 1.418, SP95: 1.540, SP98: 1.684, GPL: 0.820, date_maj: 'Via data.public.lu' };
+    return { Diesel: 1.418, SP95: 1.540, SP98: 1.684, GPL: 0.820, date_maj: new Date().toLocaleDateString('fr-FR'), source: 'data.public.lu' };
 }
 
 async function fetchPrices() {
     try {
         return await fetchDataPublicLu();
     } catch (err) {
-        console.warn("Switching to fallback");
+        console.warn("[scraping] Echec source 1, utilisation Fallback");
         return FALLBACK;
     }
 }
 
 app.get('/api/lux-prices', async (req, res) => {
-    if (cache.data && Date.now() < cache.expires_at) return res.json(cache.data);
-    const data = await fetchPrices();
-    cache = { data, expires_at: Date.now() + CACHE_TTL_MS };
-    res.json(data);
+    try {
+        if (cache.data && Date.now() < cache.expires_at) return res.json(cache.data);
+        const data = await fetchPrices();
+        cache = { data, expires_at: Date.now() + CACHE_TTL_MS };
+        res.json(data);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
-app.listen(PORT, () => console.log(`Backend sur port ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`⛽ Serveur démarré sur le port ${PORT}`);
+});
