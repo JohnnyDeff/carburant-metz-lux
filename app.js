@@ -19,6 +19,27 @@ map.on('locationfound', (e) => {
     L.circleMarker(e.latlng, { radius: 8, color: '#ffffff', fillColor: '#40bfff', fillOpacity: 0.9 }).addTo(map).bindPopup("Vous êtes ici").openPopup();
 });
 
+// ── TRADUCTEUR DE SERVICES EN EMOJIS ──
+function getServicesIcons(servicesData, is24_24) {
+    let icons = '';
+    // Gestion de l'automate 24/24
+    if (is24_24 === "Oui" || is24_24 === true) icons += '🕒<span style="font-size:10px">24/7</span> ';
+    
+    if (!servicesData) return icons;
+
+    // L'API peut renvoyer un tableau ou un texte séparé par des virgules
+    const text = Array.isArray(servicesData) ? servicesData.join(" ").toLowerCase() : servicesData.toLowerCase();
+
+    if (text.includes('toilettes')) icons += '🚻 ';
+    if (text.includes('boutique') || text.includes('alimentaire')) icons += '🛒 ';
+    if (text.includes('lavage') || text.includes('pression')) icons += '💦 ';
+    if (text.includes('gonflage')) icons += '💨 ';
+    if (text.includes('colis')) icons += '📦 ';
+    if (text.includes('restauration')) icons += '🍔 ';
+
+    return icons;
+}
+
 // ── CHARGEMENT DES DONNÉES ──
 async function loadData() {
     try {
@@ -41,11 +62,14 @@ async function loadData() {
                 
                 if (lat && lon) {
                     const finalName = s.name || s.marque || s.adresse || s.ville || "Station Service";
+                    
+                    // NOUVEAU : On génère les icônes de services
+                    const iconsHTML = getServicesIcons(s.services_service, s.horaires_automate_24_24);
 
                     stationsList.push({
                         name: finalName,
                         lat: lat, lon: lon, country: 'FR',
-                        // On intègre ici PROPREMENT les 6 carburants
+                        icons: iconsHTML, // On stocke les icônes
                         prices: {
                             Diesel: s.gazole_prix,
                             SP95: s.sp95_prix,
@@ -79,6 +103,7 @@ async function loadData() {
                     stationsList.push({
                         name: poi.poi.name || "Station LUX",
                         lat: poi.position.lat, lon: poi.position.lon, country: 'LU',
+                        icons: '', // TomTom ne donne pas les services gratuitement
                         prices: luxePrices,
                         ruptures: {}
                     });
@@ -118,15 +143,31 @@ function updateDisplay() {
             let color = s.country === 'LU' ? '#60a5fa' : (price < luxRefPrice ? '#f0c040' : '#4ade80');
             const src = s.country === 'LU' ? "Luxembourg (National)" : "France (Officiel)";
             
+            // NOUVEAU : Intégration des icônes dans la Popup
+            const popupContent = `
+                <div style="font-family: sans-serif;">
+                    <b>${s.name}</b><br>
+                    <span style="font-size:16px; font-weight:bold;">${price.toFixed(3)} €</span><br>
+                    <small style="color: #666;">${src}</small>
+                    ${s.icons ? `<div style="margin-top: 8px; font-size: 14px; background: rgba(0,0,0,0.05); padding: 4px; border-radius: 4px;">${s.icons}</div>` : ''}
+                </div>
+            `;
+
             const m = L.circleMarker([s.lat, s.lon], { radius: 8, fillColor: color, color: "#000", weight: 1, fillOpacity: 0.9 })
              .addTo(map)
-             .bindPopup(`<b>${s.name}</b><br><span style="font-size:16px;">${price.toFixed(3)} €</span><br><small>${src}</small>`);
+             .bindPopup(popupContent);
             markers.push(m);
 
+            // NOUVEAU : Intégration des icônes dans la liste latérale
             listHTML += `
-                <div class="station-item" onclick="map.setView([${s.lat}, ${s.lon}], 15)" style="cursor:pointer; padding:5px; border-bottom:1px solid #444;">
-                    <div class="st-name"><b>${s.name}</b></div>
-                    <div class="st-price" style="color:${color}">${price.toFixed(3)} €</div>
+                <div class="station-item" onclick="map.setView([${s.lat}, ${s.lon}], 15)" style="cursor:pointer; padding:8px 5px; border-bottom:1px solid #444;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div class="st-name">
+                            <b>${s.name}</b>
+                            ${s.icons ? `<div style="font-size: 12px; margin-top: 3px;">${s.icons}</div>` : ''}
+                        </div>
+                        <div class="st-price" style="color:${color}; font-weight:bold;">${price.toFixed(3)} €</div>
+                    </div>
                 </div>
             `;
         }
@@ -147,7 +188,6 @@ function setFuel(btn, fuel) {
 function renderLuPrices() {
     const el = document.getElementById('lu-prices');
     if (!el) return;
-    // Mise à jour de l'affichage avec tous les carburants
     const fuels = ['Diesel', 'SP95', 'E10', 'SP98', 'GPL', 'E85'];
     el.innerHTML = fuels.map(f => `
         <div class="price-row" style="display:flex; justify-content:space-between;">
