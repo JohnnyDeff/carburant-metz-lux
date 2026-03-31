@@ -31,28 +31,36 @@ async function loadData() {
 
     stationsList = [];
 
-    // 1. CHARGEMENT FRANCE
+    // 1. CHARGEMENT FRANCE (Syntaxe simplifiée pour éviter le HTTP 400)
     try {
-        // Rayon de 50km autour de Thionville (6.15, 49.45)
-        const geo = encodeURIComponent(`within_distance(geom, GEOMETRY'POINT(6.15 49.45)', 50km)`);
-        const url = `${FR_API_URL}?limit=100&where=${geo}`;
+        // On utilise distance(geom, point(lon, lat), rayon) qui est plus stable
+        const lon = 6.15;
+        const lat = 49.45;
+        const dist = 50000; // 50km en mètres
         
+        const url = `${FR_API_URL}?limit=100&where=distance(geom, geom'POINT(${lon} ${lat})', ${dist})`;
+        
+        console.log("Tentative URL France :", url); // Pour vérifier dans la console
+
         const frRes = await fetch(url);
-        const frData = await frRes.json();
         
-        console.log("Données brutes FR reçues :", frData.results?.length);
+        if (!frRes.ok) {
+            throw new Error(`Erreur API France: ${frRes.status}`);
+        }
+
+        const frData = await frRes.json();
+        console.log("Réponse API France reçue !");
 
         if (frData.results) {
             frData.results.forEach(s => {
-                // SÉCURITÉ COORDONNÉES : On cherche partout où elles peuvent être
-                const lat = s.geom?.lat || s.latitude;
-                const lon = s.geom?.lon || s.geom?.lng || s.longitude;
+                const sLat = s.geom?.lat || s.latitude;
+                const sLon = s.geom?.lon || s.longitude;
 
-                if (lat && lon) {
+                if (sLat && sLon) {
                     stationsList.push({
                         name: s.name || s.marque || s.ville || "Station FR",
-                        lat: parseFloat(lat),
-                        lon: parseFloat(lon),
+                        lat: parseFloat(sLat),
+                        lon: parseFloat(sLon),
                         country: 'FR',
                         icons: getIcons(s.services_service, s.horaires_automate_24_24),
                         prices: { 
@@ -68,7 +76,9 @@ async function loadData() {
                 }
             });
         }
-    } catch (e) { console.error("Erreur API France :", e); }
+    } catch (e) { 
+        console.error("Détail Erreur France :", e); 
+    }
 
     // 2. CHARGEMENT LUXEMBOURG (TomTom)
     try {
