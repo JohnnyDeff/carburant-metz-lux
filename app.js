@@ -8,11 +8,23 @@ let luxePrices = { Diesel: 1.55, SP95: 1.65, E10: 1.62, SP98: 1.78, GPL: 0.95, E
 let bePrices = { Diesel: 1.75, SP95: 1.70, E10: 1.70, SP98: 1.85, GPL: 0.80, E85: 0.90 };
 let activeFuel = 'Diesel';
 let stationsList = [];
+let searchTimer; // Pour le délai de rafraîchissement (debounce)
 
 // ── INITIALISATION CARTE ──
-const map = L.map('map').setView([49.45, 6.15], 9); 
+const map = L.map('map').setView([49.45, 6.15], 10); 
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
 const markerCluster = L.markerClusterGroup({ chunkedLoading: true });
+
+// ── EVENEMENTS CARTE (INTERACTIF) ──
+// Dès que la carte a fini de bouger ou de zoomer, on relance la recherche
+map.on('moveend', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        const center = map.getCenter();
+        console.log("📍 Nouveau centre détecté :", center.lat, center.lng);
+        loadData(center.lat, center.lng);
+    }, 600); // On attend 600ms après l'arrêt du mouvement
+});
 
 function getIcons(serv, h24) {
     let i = (h24 === "Oui" || h24 === true) ? '🕒 ' : '';
@@ -24,58 +36,52 @@ function getIcons(serv, h24) {
     return i;
 }
 
-// ── CHARGEMENT ──
-async function loadData() {
-    // 1. PRIX NATIONAUX
+// ── CHARGEMENT DYNAMIQUE ──
+async function loadData(lat = 49.45, lng = 6.15) {
+    // 1. PRIX NATIONAUX (On les charge une seule fois au début ou à chaque fois si besoin)
     try {
-        const resL = await fetch(API_LUX_URL);
-        if (resL.ok) luxePrices = await resL.json();
-        const resB = await fetch(API_BE_URL);
-        if (resB.ok) bePrices = await resB.json();
-        console.log("✅ Prix nationaux chargés");
-    } catch (e) { console.log("⚠️ Utilisation prix secours"); }
+        const [resL, resB] = await Promise.all([
+            fetch(API_LUX_URL).catch(() => null),
+            fetch(API_BE_URL).catch(() => null)
+        ]);
+        if (resL && resL.ok) luxePrices = await resL.json();
+        if (resB && resB.ok) bePrices = await resB.json();
+    } catch (e) { console.warn("Utilisation prix secours"); }
 
     stationsList = [];
 
-    // 2. APPEL FRANCE (On simplifie pour debug)
+    // 2. FRANCE (Rayon de 50km autour du CENTRE DE L'ÉCRAN)
     try {
-        // Test avec 2 départements seulement pour voir si ça débloque
-        const urlFR = `${FR_API_URL}?limit=100&where=code_departement%20in%20('57','54')`;
-        console.log("📡 Appel France sur :", urlFR);
-        
-        const frRes = await fetch(urlFR);
+        // On repasse en mode "distance" car c'est ce qui permet l'interactivité
+        const params = new URLSearchParams({
+            limit: 150,
+            where: `distance(geom, geom'POINT(${lng} ${lat})', 50000)`
+        });
+        const frRes = await fetch(`${FR_API_URL}?${params.toString()}`);
         const frData = await frRes.json();
         
-        if (frData.results && frData.results.length > 0) {
-            console.log("🇫🇷 Stations FR reçues :", frData.results.length);
+        if (frData.results) {
             frData.results.forEach(s => {
-                // On récupère les coordonnées de manière très souple
-                const lat = s.geom?.lat || s.latitude;
-                const lon = s.geom?.lon || s.longitude;
-                
-                if (lat && lon) {
+                const sLat = s.geom?.lat || s.latitude;
+                const sLon = s.geom?.lon || s.longitude;
+                if (sLat && sLon) {
                     stationsList.push({
-                        name: s.name || s.marque || s.ville || "Station FR",
-                        lat: parseFloat(lat),
-                        lon: parseFloat(lon),
-                        country: 'FR',
+                        name: s.name || s.marque || s.ville,
+                        lat: parseFloat(sLat), lon: parseFloat(sLon), country: 'FR',
                         icons: getIcons(s.services_service, s.horaires_automate_24_24),
                         prices: { Diesel: s.gazole_prix, SP95: s.sp95_prix, SP98: s.sp98_prix, GPL: s.gpl_prix, E10: s.e10_prix, E85: s.e85_prix },
                         ruptures: { Diesel: !!s.gazole_rupture_debut, SP95: !!s.sp95_rupture_debut, SP98: !!s.sp98_rupture_debut, GPL: !!s.gpl_rupture_debut, E10: !!s.e10_rupture_debut, E85: !!s.e85_rupture_debut }
                     });
                 }
             });
-        } else {
-            console.log("❌ L'API France a répondu mais la liste est VIDE");
         }
-    } catch (e) { console.error("🔥 Erreur critique France:", e); }
+    } catch (e) { console.error("Erreur France:", e); }
 
-    // 3. APPEL TOMTOM (LUX & BE)
+    // 3. TOMTOM (LUX & BE - Autour du CENTRE DE L'ÉCRAN)
     try {
-        const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=49.45&lon=6.15&radius=50000&limit=100`);
+        const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=${lat}&lon=${lng}&radius=50000&limit=100`);
         const ttData = await ttRes.json();
         if (ttData.results) {
-            console.log("🌍 Stations TomTom reçues :", ttData.results.length);
             ttData.results.forEach(poi => {
                 const c = poi.address.countryCode;
                 if (c === 'LU' || c === 'BE') {
@@ -88,7 +94,6 @@ async function loadData() {
         }
     } catch (e) { console.error("Erreur TomTom:", e); }
 
-    console.log("🏁 Total final stations :", stationsList.length);
     updateDisplay();
 }
 
@@ -115,7 +120,7 @@ function updateDisplay() {
     map.addLayer(markerCluster);
     document.getElementById('station-list').innerHTML = listHTML;
     
-    // Mise à jour visuelle du panneau
+    // Panel
     const el = document.getElementById('lu-prices');
     if (el) {
         el.innerHTML = `
@@ -134,4 +139,5 @@ function setFuel(btn, fuel) {
 
 function locateUser() { map.locate({setView: true, maxZoom: 13}); }
 
+// Premier chargement
 loadData();
