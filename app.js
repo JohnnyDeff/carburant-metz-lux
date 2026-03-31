@@ -3,29 +3,42 @@ const TOMTOM_KEY = 'CRDxsSiKnAMIpuYJQf3MNs78q25zKLBJ';
 const API_LUX_URL = '/api/lux-prices';
 const FR_API_URL = "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records";
 
-// Coordonnées pivot (entre Thionville et Luxembourg pour un équilibre parfait)
-const CENTER_LAT = 49.45; 
-const CENTER_LNG = 6.15;
-const SEARCH_RADIUS = 50; // Rayon de 50km demandé
-
-let luxePrices = { Diesel: 1.50, SP95: 1.60, SP98: 1.70, GPL: 0.90 }; 
+// Variables globales pour l'état de l'application
+let luxePrices = { Diesel: 1.55, SP95: 1.65, E10: 1.62, SP98: 1.78, GPL: 0.95, E85: 0.85 };
 let activeFuel = 'Diesel';
 let stationsList = [];
 
-// ── INITIALISATION CARTE ──
-const map = L.map('map').setView([CENTER_LAT, CENTER_LNG], 10);
+// ── INITIALISATION CARTE (Axe Metz-Lux) ──
+const map = L.map('map').setView([49.45, 6.15], 10);
+
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; CartoDB | TomTom'
+    attribution: '&copy; OpenStreetMap | CartoDB | TomTom'
 }).addTo(map);
 
-// Groupe de clusters pour la performance visuelle
-const markerCluster = L.markerClusterGroup({ chunkedLoading: true });
+// Initialisation du groupe de clusters
+const markerCluster = L.markerClusterGroup({ 
+    chunkedLoading: true,
+    spiderfyOnMaxZoom: true 
+});
 
 // ── FONCTIONS UTILITAIRES ──
-function getServicesIcons(services, is24h) {
-    let icons = is24h === "Oui" ? '🕒 ' : '';
-    if (!services) return icons;
-    const s = Array.isArray(services) ? services.join(" ").toLowerCase() : services.toLowerCase();
+
+// Géolocalisation
+function locateUser() {
+    map.locate({setView: true, maxZoom: 13});
+}
+
+map.on('locationfound', (e) => {
+    L.circleMarker(e.latlng, { radius: 8, color: '#ffffff', fillColor: '#40bfff', fillOpacity: 0.9 })
+        .addTo(map)
+        .bindPopup("Vous êtes ici").openPopup();
+});
+
+// Traducteur de services
+function getIcons(serv, h24) {
+    let icons = (h24 === "Oui" || h24 === true) ? '🕒 ' : '';
+    if (!serv) return icons;
+    const s = Array.isArray(serv) ? serv.join(" ").toLowerCase() : serv.toLowerCase();
     if (s.includes('toilettes')) icons += '🚻 ';
     if (s.includes('boutique')) icons += '🛒 ';
     if (s.includes('lavage')) icons += '💦 ';
@@ -33,81 +46,104 @@ function getServicesIcons(services, is24h) {
     return icons;
 }
 
-// ── MOTEUR DE RECHERCHE ──
-async function loadData(lat = CENTER_LAT, lng = CENTER_LNG) {
-    console.log("Initialisation zone Metz-Lux...");
-    
-    // 1. Récupération prix LUX (Backend)
+// ── CHARGEMENT DES DONNÉES (Rayon 50km) ──
+async function loadData() {
+    // 1. Récupération Prix Luxembourg (Backend)
     try {
         const res = await fetch(API_LUX_URL);
-        if (res.ok) luxePrices = await res.json();
-        renderLuPrices();
-    } catch (e) { console.warn("Mode dégradé: Prix Lux par défaut."); }
+        if (res.ok) {
+            luxePrices = await res.json();
+            console.log("Prix Luxembourg mis à jour");
+        }
+    } catch (e) { console.warn("Serveur Lux indisponible, mode secours activé."); }
 
     stationsList = [];
 
-    // 2. Récupération France (API Gouv) - Limitée au rayon de 50km
+    // 2. Récupération France (Axe Metz-Lux 50km)
     try {
-        const geoFilter = encodeURIComponent(`within_distance(geom, GEOMETRY'POINT(${lng} ${lat})', ${SEARCH_RADIUS}km)`);
-        const frRes = await fetch(`${FR_API_URL}?limit=250&where=${geoFilter}`);
+        const geoFilter = encodeURIComponent(`within_distance(geom, GEOMETRY'POINT(6.15 49.45)', 50km)`);
+        const frRes = await fetch(`${FR_API_URL}?limit=300&where=${geoFilter}`);
         const frData = await frRes.json();
         
         if (frData.results) {
             frData.results.forEach(s => {
-                stationsList.push({
-                    name: s.name || s.marque || s.ville || "Station",
-                    lat: s.geom.lat, lon: s.geom.lon, country: 'FR',
-                    icons: getServicesIcons(s.services_service, s.horaires_automate_24_24),
-                    prices: { Diesel: s.gazole_prix, SP95: s.sp95_prix, SP98: s.sp98_prix, GPL: s.gpl_prix, E10: s.e10_prix, E85: s.e85_prix },
-                    ruptures: { Diesel: !!s.gazole_rupture_debut, SP95: !!s.sp95_rupture_debut, SP98: !!s.sp98_rupture_debut, GPL: !!s.gpl_rupture_debut, E10: !!s.e10_rupture_debut, E85: !!s.e85_rupture_debut }
-                });
-            });
-        }
-    } catch (e) { console.error("Erreur France:", e); }
-
-    // 3. Récupération Luxembourg (TomTom)
-    try {
-        const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=${lat}&lon=${lng}&radius=${SEARCH_RADIUS * 1000}&limit=100`);
-        const ttData = await ttRes.json();
-        if (ttData.results) {
-            ttData.results.forEach(poi => {
-                if (poi.address.countryCode === 'LU') {
+                const lat = s.geom?.lat || s.latitude;
+                const lon = s.geom?.lon || s.longitude;
+                if (lat && lon) {
                     stationsList.push({
-                        name: poi.poi.name, lat: poi.position.lat, lon: poi.position.lon, country: 'LU',
-                        icons: '🕒', prices: luxePrices, ruptures: {}
+                        name: s.name || s.marque || s.ville || "Station",
+                        lat: lat, lon: lon, country: 'FR',
+                        icons: getIcons(s.services_service, s.horaires_automate_24_24),
+                        prices: { Diesel: s.gazole_prix, SP95: s.sp95_prix, SP98: s.sp98_prix, GPL: s.gpl_prix, E10: s.e10_prix, E85: s.e85_prix },
+                        ruptures: { Diesel: !!s.gazole_rupture_debut, SP95: !!s.sp95_rupture_debut, SP98: !!s.sp98_rupture_debut, GPL: !!s.gpl_rupture_debut, E10: !!s.e10_rupture_debut, E85: !!s.e85_rupture_debut }
                     });
                 }
             });
         }
-    } catch (e) { console.error("Erreur TomTom:", e); }
+    } catch (e) { console.error("Erreur API France :", e); }
+
+    // 3. Récupération TomTom (Localisation physique au Lux)
+    try {
+        const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=49.45&lon=6.15&radius=50000&limit=100`);
+        const ttData = await ttRes.json();
+        
+        if (ttData.results) {
+            ttData.results.forEach(poi => {
+                if (poi.address.countryCode === 'LU') {
+                    stationsList.push({
+                        name: poi.poi.name,
+                        lat: poi.position.lat,
+                        lon: poi.position.lon,
+                        country: 'LU',
+                        icons: '🕒', 
+                        prices: luxePrices, 
+                        ruptures: {}
+                    });
+                }
+            });
+        }
+    } catch (e) { console.error("Erreur TomTom :", e); }
 
     updateDisplay();
 }
 
+// ── MISE À JOUR DE L'INTERFACE ──
 function updateDisplay() {
     markerCluster.clearLayers();
     let listHTML = '';
+    const fuelKey = activeFuel;
+    const refPriceLux = luxePrices[fuelKey] || 1.6;
 
     stationsList.forEach(s => {
-        const price = s.prices[activeFuel];
-        const isRupture = s.ruptures[activeFuel];
-        const luxRef = luxePrices[activeFuel] || 1.6;
+        const price = s.prices[fuelKey];
+        const isRupture = s.ruptures[fuelKey];
         
         if (isRupture) {
-            const m = L.circleMarker([s.lat, s.lon], { radius: 7, fillColor: '#ef4444', color: '#000', weight: 1, fillOpacity: 0.8 })
-                      .bindPopup(`<b>${s.name}</b><br><b style="color:#ef4444">RUPTURE</b>`);
+            const m = L.circleMarker([s.lat, s.lon], { radius: 6, fillColor: '#ef4444', color: '#000', weight: 1, fillOpacity: 0.8 })
+                      .bindPopup(`<b>${s.name}</b><br><b style="color:#ef4444">RUPTURE DE STOCK</b>`);
             markerCluster.addLayer(m);
-        } else if (price) {
-            let color = s.country === 'LU' ? '#60a5fa' : (price < luxRef ? '#fbbf24' : '#10b981');
-            const m = L.circleMarker([s.lat, s.lon], { radius: 8, fillColor: color, color: '#000', weight: 1, fillOpacity: 0.9 })
-                      .bindPopup(`<b>${s.name}</b><br><span style="font-size:15px; font-weight:bold;">${price.toFixed(3)} €</span><br>${s.icons}`);
-            markerCluster.addLayer(m);
+        } 
+        else if (price) {
+            // Couleurs : Lux = Bleu, FR (moins cher que Lux) = Jaune, FR (plus cher que Lux) = Vert
+            let color = s.country === 'LU' ? '#60a5fa' : (price < refPriceLux ? '#fbbf24' : '#10b981');
             
+            const popup = `
+                <div style="font-family:sans-serif;">
+                    <b>${s.name}</b><br>
+                    <span style="font-size:16px; font-weight:bold;">${price.toFixed(3)} €</span><br>
+                    <small>${s.icons}</small>
+                </div>`;
+
+            const m = L.circleMarker([s.lat, s.lon], { radius: 8, fillColor: color, color: '#000', weight: 1, fillOpacity: 0.9 })
+                      .bindPopup(popup);
+            
+            markerCluster.addLayer(m);
+
             listHTML += `
-                <div class="station-item" onclick="map.setView([${s.lat}, ${s.lon}], 14)" style="cursor:pointer; padding:10px; border-bottom:1px solid #374151;">
-                    <div style="display:flex; justify-content:space-between;">
-                        <span><b>${s.name}</b><br><small>${s.icons}</small></span>
-                        <b style="color:${color}">${price.toFixed(3)}€</b>
+                <div class="station-item" onclick="map.setView([${s.lat}, ${s.lon}], 14)" style="cursor:pointer;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div class="st-name"><b>${s.name}</b><br><small>${s.icons}</small></div>
+                        <div style="color:${color}; font-weight:bold; font-size:15px;">${price.toFixed(3)}€</div>
                     </div>
                 </div>`;
         }
@@ -115,9 +151,10 @@ function updateDisplay() {
 
     map.addLayer(markerCluster);
     document.getElementById('station-list').innerHTML = listHTML;
+    renderLuPrices();
 }
 
-// UI
+// Boutons Carburants
 function setFuel(btn, fuel) {
     document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
@@ -125,14 +162,16 @@ function setFuel(btn, fuel) {
     updateDisplay();
 }
 
+// Mise à jour du panneau latéral Lux
 function renderLuPrices() {
     const el = document.getElementById('lu-prices');
     if (!el) return;
-    el.innerHTML = ['Diesel', 'SP95', 'E10', 'SP98', 'GPL', 'E85'].map(f => `
-        <div style="display:flex; justify-content:space-between; font-size:13px; padding:2px 0;">
+    const fuels = ['Diesel', 'SP95', 'E10', 'SP98', 'GPL', 'E85'];
+    el.innerHTML = fuels.map(f => `
+        <div style="display:flex; justify-content:space-between; font-size:13px; margin:2px 0;">
             <span>${f}</span><b>${luxePrices[f] ? luxePrices[f].toFixed(3) + '€' : 'NC'}</b>
         </div>`).join('');
 }
 
-// Chargement initial immédiat
+// Lancement au démarrage
 loadData();
