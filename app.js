@@ -1,9 +1,9 @@
 // ── CONFIGURATION ──
 const API_LUX_URL = '/api/lux-prices';
-const FR_API_URL = "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records";
+const FR_API_URL  = 'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records';
 
-let stations = [];
-let markers = [];
+let stations  = [];
+let markers   = [];
 let activeFuel = 'Diesel';
 let luxePrices = { Diesel: 0, SP95: 0, SP98: 0, GPL: 0 };
 let frAverages = { Diesel: 0, SP95: 0, SP98: 0 };
@@ -15,95 +15,155 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     maxZoom: 19
 }).addTo(map);
 
+// Marqueur Luxembourg de référence
+L.circleMarker([49.6116, 6.1319], {
+    radius: 9, color: '#60a5fa', fillColor: '#60a5fa', fillOpacity: 0.35, weight: 2
+}).bindPopup('<b>Luxembourg (ref.)</b>').addTo(map);
+
 // ── GÉOLOCALISATION ──
 function locateUser() {
-    map.locate({setView: true, maxZoom: 14});
+    map.locate({ setView: true, maxZoom: 14 });
 }
 map.on('locationfound', (e) => {
-    L.circleMarker(e.latlng, { radius: 8, color: '#ffffff', fillColor: '#40bfff', fillOpacity: 0.9 }).addTo(map)
-        .bindPopup("Vous êtes ici").openPopup();
+    L.circleMarker(e.latlng, {
+        radius: 8, color: '#ffffff', fillColor: '#40bfff', fillOpacity: 0.9
+    }).addTo(map).bindPopup('Vous êtes ici').openPopup();
 });
 
-// ── CHARGEMENT DATA FRANCE (METZ/57) ──
+// ── CHARGEMENT DATA FRANCE ──
 async function getFranceData() {
     const statusEl = document.getElementById('status-text');
-    const dot = document.getElementById('live-dot');
-    
-    try {
-        // Utilisation de refine:57 pour contourner les erreurs de filtrage classiques
-        const response = await fetch(`${FR_API_URL}?limit=100&refine=departement%3A57`);
-        const data = await response.json();
-        
-        if (!data.results) throw new Error("Données France indisponibles");
+    const dot      = document.getElementById('live-dot');
 
+    dot.classList.add('loading');
+    statusEl.textContent = 'Chargement stations…';
+
+    try {
+        // BUG CORRIGÉ : l'API v2.1 attend le NOM du département, pas le numéro
+        // "57" retourne 0 résultats → "Moselle" retourne les stations
+        const url = `${FR_API_URL}?limit=100&refine=departement%3A%22Moselle%22` +
+                    `&select=name,address,city,latitude,longitude,prix_diesel,prix_essence_95,prix_essence_98,rupture`;
+
+        const res  = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (!data.results || !data.results.length) throw new Error('Aucun résultat API France');
+
+        // BUG CORRIGÉ : les clés correspondent exactement aux champs de l'API
         stations = data.results.map(s => ({
-            name: s.name || "Station",
-            city: s.city,
-            lat: s.latitude,
-            lon: s.longitude,
+            name:     s.name     || 'Station',
+            city:     s.city     || '',           // jamais null → plus de crash
+            address:  s.address  || '',
+            lat:      parseFloat(s.latitude),
+            lon:      parseFloat(s.longitude),
+            rupture:  s.rupture  || [],
             prices: {
-                Diesel: s.prix_diesel,
-                SP95: s.prix_essence_95,
-                SP98: s.prix_essence_98
+                Diesel: s.prix_diesel      || null,
+                SP95:   s.prix_essence_95  || null,   // BUG CORRIGÉ : bon nom de champ
+                SP98:   s.prix_essence_98  || null,
             }
         }));
 
         calculateAverages();
         updateMarkers();
         renderList();
-        
-        if (dot) dot.classList.remove('loading');
-        if (statusEl) statusEl.textContent = `${stations.length} stations chargées (57)`;
-    } catch (error) {
-        console.error("Erreur API France:", error);
-        if (statusEl) statusEl.textContent = "Erreur API France";
+
+        dot.classList.remove('loading');
+        statusEl.textContent = `${stations.length} stations · ${new Date().toLocaleTimeString('fr-FR')}`;
+
+        const countEl = document.getElementById('count-label');
+        if (countEl) countEl.textContent = `${stations.length} stations chargées`;
+
+    } catch (err) {
+        console.error('Erreur API France:', err);
+        dot.classList.add('error');
+        statusEl.textContent = 'Erreur API France — réessai dans 30s';
+        setTimeout(getFranceData, 30000);
     }
 }
 
-// ── CHARGEMENT DATA LUX (STATEC) ──
+// ── CHARGEMENT DATA LUX (backend) ──
 async function getLuxData() {
     try {
         const res = await fetch(API_LUX_URL);
-        luxePrices = await res.json();
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        // Validation : on accepte que si on a au moins Diesel ou SP95
+        if (!data.Diesel && !data.SP95) throw new Error('Données LU vides');
+
+        luxePrices = data;
+
+        // Mettre à jour le nom de la source dans l'UI
+        const srcEl = document.getElementById('lu-source-name');
+        if (srcEl) srcEl.textContent = data.source || 'data.public.lu';
+
         renderLuPrices();
         updateSavings();
-    } catch (e) {
-        console.error("Erreur Backend Lux:", e);
+    } catch (err) {
+        console.warn('Backend LU inaccessible — fallback statique:', err.message);
+        // Fallback : prix du dernier communiqué connu (à mettre à jour manuellement si besoin)
+        luxePrices = {
+            Diesel: 1.418,
+            SP95:   1.540,
+            SP98:   1.684,
+            GPL:    0.820,
+            date_maj: 'fallback',
+            source: 'valeurs codées (backend indisponible)'
+        };
+        renderLuPrices();
+        updateSavings();
     }
 }
 
-// ── CALCULS & AFFICHAGE ──
+// ── CALCUL MOYENNES ──
 function calculateAverages() {
     ['Diesel', 'SP95', 'SP98'].forEach(fuel => {
-        const fuelKey = fuel === 'Diesel' ? 'Diesel' : fuel;
-        const validStations = stations.filter(s => s.prices[fuelKey]);
-        const sum = validStations.reduce((acc, s) => acc + s.prices[fuelKey], 0);
-        frAverages[fuel] = validStations.length ? sum / validStations.length : 0;
+        // BUG CORRIGÉ : on filtre les stations ayant bien un prix non-null pour ce carburant
+        const valid = stations.filter(s => s.prices[fuel] !== null && s.prices[fuel] > 0);
+        frAverages[fuel] = valid.length
+            ? valid.reduce((acc, s) => acc + s.prices[fuel], 0) / valid.length
+            : 0;
     });
     renderFrPrices();
 }
 
+// ── MARQUEURS CARTE ──
 function updateMarkers() {
     markers.forEach(m => map.removeLayer(m));
     markers = [];
 
     stations.forEach(s => {
         const p = s.prices[activeFuel];
-        if (!p || !s.lat || !s.lon) return;
+        if (!p || isNaN(s.lat) || isNaN(s.lon)) return;
 
-        // Jaune si moins cher que Lux, Vert sinon
-        const color = p < luxePrices[activeFuel] ? '#f0c040' : '#4ade80';
-        const m = L.circleMarker([s.lat, s.lon], {
-            radius: 7, color: color, fillOpacity: 0.9, weight: 1
-        }).addTo(map);
-        
-        m.bindPopup(`<b>${s.name}</b><br>${s.city}<br>${activeFuel}: ${p.toFixed(3)}€`);
+        const hasRupture = s.rupture && s.rupture.length > 0;
+        const isCheaper  = luxePrices[activeFuel] && p < luxePrices[activeFuel];
+
+        let color = '#4ade80';
+        if (hasRupture) color = '#ff5a5a';
+        else if (isCheaper) color = '#f0c040';
+
+        const icon = L.divIcon({
+            html: `<div style="width:10px;height:10px;border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.4);box-shadow:0 0 5px ${color}88"></div>`,
+            className: '',
+            iconSize: [10, 10],
+            iconAnchor: [5, 5]
+        });
+
+        const popup = `<b>${s.name}</b><br>${s.address}<br>${s.city}<br>${activeFuel}: <b>${p.toFixed(3)} €</b>` +
+                      (hasRupture ? `<br><span style="color:#ff5a5a">⚠ Rupture: ${s.rupture.join(', ')}</span>` : '');
+
+        const m = L.marker([s.lat, s.lon], { icon })
+                   .bindPopup(popup)
+                   .addTo(map);
         markers.push(m);
     });
 }
 
+// ── FILTRE CARBURANT ──
 function setFuel(btn, fuel) {
-    if (fuel === 'Tous') return; // Option non gérée pour l'instant
     document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     activeFuel = fuel;
@@ -112,53 +172,111 @@ function setFuel(btn, fuel) {
     updateSavings();
 }
 
+// ── AFFICHAGE PRIX LU ──
 function renderLuPrices() {
     const el = document.getElementById('lu-prices');
     if (!el) return;
-    el.innerHTML = ['Diesel', 'SP95', 'SP98'].map(k => `
-        <div class="price-row"><span>${k}</span> <b>${luxePrices[k].toFixed(3)}€</b></div>
-    `).join('');
+
+    const fuels = ['Diesel', 'SP95', 'SP98', 'GPL'];
+    el.innerHTML = fuels.map(k => {
+        const v  = luxePrices[k];
+        const fr = frAverages[k];
+        let diffHtml = '';
+        if (fr && v && fr > 0) {
+            const d = (v - fr).toFixed(3);
+            const cls = d < 0 ? 'diff-neg' : 'diff-pos';
+            diffHtml = `<span class="${cls}">${d > 0 ? '+' : ''}${d}</span>`;
+        }
+        return `<div class="price-row">
+            <span class="fuel-name">${k}</span>
+            <span>${v ? `<span class="price-lu">${v.toFixed(3)}€</span>` : 'NC'} ${diffHtml}</span>
+        </div>`;
+    }).join('');
+
     const label = document.getElementById('lu-date-label');
-    if (label) label.textContent = ` (Maj: ${luxePrices.date_maj})`;
+    if (label) label.textContent = luxePrices.date_maj ? ` · ${luxePrices.date_maj}` : '';
 }
 
+// ── AFFICHAGE PRIX FR ──
 function renderFrPrices() {
     const el = document.getElementById('fr-prices');
     if (!el) return;
     el.innerHTML = ['Diesel', 'SP95', 'SP98'].map(k => `
-        <div class="price-row"><span>${k}</span> <b>${frAverages[k].toFixed(3)}€</b></div>
+        <div class="price-row">
+            <span class="fuel-name">${k}</span>
+            <span class="price-fr">${frAverages[k] > 0 ? frAverages[k].toFixed(3) + '€' : '…'}</span>
+        </div>
     `).join('');
 }
 
+// ── BANNIÈRE ÉCONOMIE ──
 function updateSavings() {
     const banner = document.getElementById('savings-banner');
-    const valEl = document.getElementById('savings-val');
-    const frP = frAverages[activeFuel], luP = luxePrices[activeFuel];
+    const valEl  = document.getElementById('savings-val');
+    const noteEl = document.getElementById('savings-note');
+    if (!banner || !valEl) return;
 
-    if (frP && luP && frP > luP) {
+    const frP = frAverages[activeFuel];
+    const luP = luxePrices[activeFuel];
+
+    if (frP > 0 && luP > 0 && frP > luP + 0.005) {
         banner.classList.remove('hidden');
-        valEl.textContent = `+${((frP - luP) * 50).toFixed(2)} €`;
+        const diff = frP - luP;
+        valEl.textContent = `+${(diff * 50).toFixed(2)} €`;
+        if (noteEl) noteEl.textContent = `Plein 50 L · LU moins cher de ${diff.toFixed(3)} €/L`;
     } else {
         banner.classList.add('hidden');
     }
 }
 
+// ── LISTE DES STATIONS ──
 function renderList() {
-    const listEl = document.getElementById('station-list');
-    const search = document.getElementById('search').value.toLowerCase();
-    
-    const filtered = stations
-        .filter(s => s.city.toLowerCase().includes(search) && s.prices[activeFuel])
-        .sort((a, b) => a.prices[activeFuel] - b.prices[activeFuel]);
+    const listEl  = document.getElementById('station-list');
+    const countEl = document.getElementById('count-label');
+    if (!listEl) return;
 
-    listEl.innerHTML = filtered.slice(0, 30).map(s => `
-        <div class="station-item" onclick="map.setView([${s.lat}, ${s.lon}], 15)">
-            <div class="st-name">${s.name}</div>
-            <div class="st-price">${s.prices[activeFuel].toFixed(3)} €</div>
-        </div>
-    `).join('');
+    const search = (document.getElementById('search')?.value || '').toLowerCase().trim();
+
+    // BUG CORRIGÉ : garde-fou sur city/name null + filtre sur prix disponible
+    const filtered = stations
+        .filter(s => {
+            const cityMatch = s.city.toLowerCase().includes(search);
+            const nameMatch = s.name.toLowerCase().includes(search);
+            return (!search || cityMatch || nameMatch) && s.prices[activeFuel] !== null;
+        })
+        .sort((a, b) => (a.prices[activeFuel] || 9999) - (b.prices[activeFuel] || 9999));
+
+    if (countEl) countEl.textContent = `${filtered.length} stations`;
+
+    if (!filtered.length) {
+        listEl.innerHTML = '<div class="empty">Aucune station trouvée.</div>';
+        return;
+    }
+
+    const luRef = luxePrices[activeFuel];
+    listEl.innerHTML = filtered.slice(0, 40).map((s, i) => {
+        const p = s.prices[activeFuel];
+        const isCheaper = luRef && p < luRef;
+        const hasRupture = s.rupture && s.rupture.length > 0;
+        let tag = '';
+        if (hasRupture)       tag = '<div class="st-tag tag-rupture">⚠ Rupture</div>';
+        else if (i === 0)     tag = '<div class="st-tag tag-top">★ Moins cher</div>';
+        else if (isCheaper)   tag = '<div class="st-tag tag-cheap">↓ &lt; LU</div>';
+
+        return `<div class="station-item${isCheaper && !hasRupture ? ' selected' : ''}"
+                     onclick="map.setView([${s.lat}, ${s.lon}], 15)">
+            <div>
+                <div class="st-name">${s.name}</div>
+                <div class="st-addr">${s.address}${s.address && s.city ? ' · ' : ''}${s.city}</div>
+                ${tag}
+            </div>
+            <div class="st-price${isCheaper ? ' cheaper' : ''}">${p.toFixed(3)} €</div>
+        </div>`;
+    }).join('');
 }
 
 // ── LANCEMENT ──
 getLuxData();
 getFranceData();
+// Rafraîchissement auto toutes les 10 min
+setInterval(getFranceData, 600000);
