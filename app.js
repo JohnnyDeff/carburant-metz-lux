@@ -48,52 +48,68 @@ function getIcons(serv, h24) {
 
 // ── CHARGEMENT DES DONNÉES (Rayon 50km) ──
 async function loadData() {
-    // 1. Récupération Prix Luxembourg (Backend)
+    // 1. Récupération Prix Luxembourg
     try {
         const res = await fetch(API_LUX_URL);
-        if (res.ok) {
-            luxePrices = await res.json();
-            console.log("Prix Luxembourg mis à jour");
-        }
-    } catch (e) { console.warn("Serveur Lux indisponible, mode secours activé."); }
+        if (res.ok) luxePrices = await res.json();
+    } catch (e) { console.warn("Prix Lux par défaut"); }
 
     stationsList = [];
 
-    // 2. Récupération France (Axe Metz-Lux 50km)
+    // 2. Récupération France (Correction du filtre et des noms de champs)
     try {
-        const geoFilter = encodeURIComponent(`within_distance(geom, GEOMETRY'POINT(6.15 49.45)', 50km)`);
-        const frRes = await fetch(`${FR_API_URL}?limit=300&where=${geoFilter}`);
+        // On centre sur 49.45, 6.15 (Axe Thionville-Lux)
+        const geo = encodeURIComponent(`within_distance(geom, GEOMETRY'POINT(6.15 49.45)', 50km)`);
+        const frRes = await fetch(`${FR_API_URL}?limit=300&where=${geo}`);
         const frData = await frRes.json();
         
         if (frData.results) {
             frData.results.forEach(s => {
-                const lat = s.geom?.lat || s.latitude;
-                const lon = s.geom?.lon || s.longitude;
-                if (lat && lon) {
+                // SÉCURITÉ : L'API peut renvoyer 'lon' ou 'lng' selon les versions
+                const longitude = s.geom?.lon || s.geom?.lng || s.longitude;
+                const latitude = s.geom?.lat || s.latitude;
+
+                if (latitude && longitude) {
                     stationsList.push({
-                        name: s.name || s.marque || s.ville || "Station",
-                        lat: lat, lon: lon, country: 'FR',
+                        name: s.name || s.marque || s.ville || "Station FR",
+                        lat: parseFloat(latitude), 
+                        lon: parseFloat(longitude), 
+                        country: 'FR',
                         icons: getIcons(s.services_service, s.horaires_automate_24_24),
-                        prices: { Diesel: s.gazole_prix, SP95: s.sp95_prix, SP98: s.sp98_prix, GPL: s.gpl_prix, E10: s.e10_prix, E85: s.e85_prix },
-                        ruptures: { Diesel: !!s.gazole_rupture_debut, SP95: !!s.sp95_rupture_debut, SP98: !!s.sp98_rupture_debut, GPL: !!s.gpl_rupture_debut, E10: !!s.e10_rupture_debut, E85: !!s.e85_rupture_debut }
+                        // On s'assure que les prix sont bien des nombres
+                        prices: { 
+                            Diesel: parseFloat(s.gazole_prix), 
+                            SP95: parseFloat(s.sp95_prix), 
+                            SP98: parseFloat(s.sp98_prix), 
+                            GPL: parseFloat(s.gpl_prix), 
+                            E10: parseFloat(s.e10_prix), 
+                            E85: parseFloat(s.e85_prix) 
+                        },
+                        ruptures: { 
+                            Diesel: !!s.gazole_rupture_debut, 
+                            SP95: !!s.sp95_rupture_debut, 
+                            SP98: !!s.sp98_rupture_debut, 
+                            GPL: !!s.gpl_rupture_debut, 
+                            E10: !!s.e10_rupture_debut, 
+                            E85: !!s.e85_rupture_debut 
+                        }
                     });
                 }
             });
         }
-    } catch (e) { console.error("Erreur API France :", e); }
+    } catch (e) { console.error("Erreur France:", e); }
 
-    // 3. Récupération TomTom (Localisation physique au Lux)
+    // 3. Récupération TomTom (Luxembourg)
     try {
         const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=49.45&lon=6.15&radius=50000&limit=100`);
         const ttData = await ttRes.json();
-        
         if (ttData.results) {
             ttData.results.forEach(poi => {
                 if (poi.address.countryCode === 'LU') {
                     stationsList.push({
-                        name: poi.poi.name,
-                        lat: poi.position.lat,
-                        lon: poi.position.lon,
+                        name: poi.poi.name, 
+                        lat: poi.position.lat, 
+                        lon: poi.position.lon, 
                         country: 'LU',
                         icons: '🕒', 
                         prices: luxePrices, 
@@ -102,7 +118,7 @@ async function loadData() {
                 }
             });
         }
-    } catch (e) { console.error("Erreur TomTom :", e); }
+    } catch (e) { console.error("Erreur TomTom:", e); }
 
     updateDisplay();
 }
