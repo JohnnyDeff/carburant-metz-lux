@@ -86,7 +86,7 @@ app.get('/api/france-proxy', async (req, res) => {
         const response = await axios.get(url, {
             ...axiosConfig,
             params: {
-                limit: 150,
+                limit: 100,
                 where: `within_distance(geom, GEOM'POINT(${lng} ${lat})', 50km)`
             }
         });
