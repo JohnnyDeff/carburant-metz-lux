@@ -60,12 +60,15 @@
         </div>
       </div>
 
-      <div class="section-label">Stations Moselle</div>
-      <div class="filters">
-        <button class="pill active" onclick="setFuel(this,'Diesel')">Diesel</button>
-        <button class="pill" onclick="setFuel(this,'SP95')">SP95</button>
-        <button class="pill" onclick="setFuel(this,'SP98')">SP98</button>
-      </div>
+      <div class="section-label">Filtre des carburants</div>
+<div class="filters" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 15px;">
+    <button class="pill active" onclick="setFuel(this,'Diesel')">Diesel</button>
+    <button class="pill" onclick="setFuel(this,'SP95')">SP95</button>
+    <button class="pill" onclick="setFuel(this,'E10')">E10</button>
+    <button class="pill" onclick="setFuel(this,'SP98')">SP98</button>
+    <button class="pill" onclick="setFuel(this,'GPL')">GPL</button>
+    <button class="pill" onclick="setFuel(this,'E85')">E85</button>
+</div>
       
       <input type="text" id="search" placeholder="Filtrer par ville…" oninput="renderList()"/>
       
