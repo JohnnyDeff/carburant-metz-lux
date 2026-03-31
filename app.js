@@ -26,27 +26,33 @@ function getIcons(serv, h24) {
 
 // ── CHARGEMENT ──
 async function loadData() {
+    // 1. PRIX NATIONAUX
     try {
-        const [luxR, beR] = await Promise.all([fetch(API_LUX_URL), fetch(API_BE_URL)]);
-        if (luxR.ok) luxePrices = await luxR.json();
-        if (beR.ok) bePrices = await beR.json();
-        console.log("Prix nationaux OK");
-    } catch (e) { console.warn("Mode secours prix"); }
+        const resL = await fetch(API_LUX_URL);
+        if (resL.ok) luxePrices = await resL.json();
+        const resB = await fetch(API_BE_URL);
+        if (resB.ok) bePrices = await resB.json();
+        console.log("✅ Prix nationaux chargés");
+    } catch (e) { console.log("⚠️ Utilisation prix secours"); }
 
     stationsList = [];
 
-    // 1. FRANCE (54, 55, 57)
+    // 2. APPEL FRANCE (On simplifie pour debug)
     try {
-        const urlFR = `${FR_API_URL}?limit=200&where=code_departement in ('54','55','57')`;
+        // Test avec 2 départements seulement pour voir si ça débloque
+        const urlFR = `${FR_API_URL}?limit=100&where=code_departement%20in%20('57','54')`;
+        console.log("📡 Appel France sur :", urlFR);
+        
         const frRes = await fetch(urlFR);
         const frData = await frRes.json();
         
-        if (frData.results) {
+        if (frData.results && frData.results.length > 0) {
+            console.log("🇫🇷 Stations FR reçues :", frData.results.length);
             frData.results.forEach(s => {
-                // TEST DE TOUS LES EMPLACEMENTS POSSIBLES DES COORDONNÉES
-                const lat = s.geom?.lat || s.lat || s.latitude;
-                const lon = s.geom?.lon || s.geom?.lng || s.lon || s.longitude;
-
+                // On récupère les coordonnées de manière très souple
+                const lat = s.geom?.lat || s.latitude;
+                const lon = s.geom?.lon || s.longitude;
+                
                 if (lat && lon) {
                     stationsList.push({
                         name: s.name || s.marque || s.ville || "Station FR",
@@ -54,27 +60,22 @@ async function loadData() {
                         lon: parseFloat(lon),
                         country: 'FR',
                         icons: getIcons(s.services_service, s.horaires_automate_24_24),
-                        prices: { 
-                            Diesel: s.gazole_prix, SP95: s.sp95_prix, SP98: s.sp98_prix, 
-                            GPL: s.gpl_prix, E10: s.e10_prix, E85: s.e85_prix 
-                        },
-                        ruptures: { 
-                            Diesel: !!s.gazole_rupture_debut, SP95: !!s.sp95_rupture_debut, 
-                            SP98: !!s.sp98_rupture_debut, GPL: !!s.gpl_rupture_debut, 
-                            E10: !!s.e10_rupture_debut, E85: !!s.e85_rupture_debut 
-                        }
+                        prices: { Diesel: s.gazole_prix, SP95: s.sp95_prix, SP98: s.sp98_prix, GPL: s.gpl_prix, E10: s.e10_prix, E85: s.e85_prix },
+                        ruptures: { Diesel: !!s.gazole_rupture_debut, SP95: !!s.sp95_rupture_debut, SP98: !!s.sp98_rupture_debut, GPL: !!s.gpl_rupture_debut, E10: !!s.e10_rupture_debut, E85: !!s.e85_rupture_debut }
                     });
                 }
             });
-            console.log("Stations FR ajoutées. Nouveau total :", stationsList.length);
+        } else {
+            console.log("❌ L'API France a répondu mais la liste est VIDE");
         }
-    } catch (e) { console.error("Erreur France:", e); }
+    } catch (e) { console.error("🔥 Erreur critique France:", e); }
 
-    // 2. LUX & BE (TomTom)
+    // 3. APPEL TOMTOM (LUX & BE)
     try {
         const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=49.45&lon=6.15&radius=50000&limit=100`);
         const ttData = await ttRes.json();
         if (ttData.results) {
+            console.log("🌍 Stations TomTom reçues :", ttData.results.length);
             ttData.results.forEach(poi => {
                 const c = poi.address.countryCode;
                 if (c === 'LU' || c === 'BE') {
@@ -87,7 +88,7 @@ async function loadData() {
         }
     } catch (e) { console.error("Erreur TomTom:", e); }
 
-    console.log("Total Final :", stationsList.length);
+    console.log("🏁 Total final stations :", stationsList.length);
     updateDisplay();
 }
 
@@ -113,19 +114,15 @@ function updateDisplay() {
     });
     map.addLayer(markerCluster);
     document.getElementById('station-list').innerHTML = listHTML;
-    renderPanel();
-}
-
-function renderPanel() {
+    
+    // Mise à jour visuelle du panneau
     const el = document.getElementById('lu-prices');
-    if (!el) return;
-    el.innerHTML = `
-        <div style="font-size:12px; border-bottom:1px solid #444; padding-bottom:5px; margin-bottom:5px;">
-            <span style="color:#60a5fa">🇱🇺 Lux:</span> <b>${luxePrices[activeFuel]?.toFixed(3)}€</b>
-        </div>
-        <div style="font-size:12px;">
-            <span style="color:#f97316">🇧🇪 Bel:</span> <b>${bePrices[activeFuel]?.toFixed(3)}€</b>
-        </div>`;
+    if (el) {
+        el.innerHTML = `
+            <div style="font-size:12px; margin-bottom:5px;"><span style="color:#60a5fa">🇱🇺 Lux:</span> <b>${luxePrices[activeFuel]?.toFixed(3)}€</b></div>
+            <div style="font-size:12px;"><span style="color:#f97316">🇧🇪 Bel:</span> <b>${bePrices[activeFuel]?.toFixed(3)}€</b></div>
+        `;
+    }
 }
 
 function setFuel(btn, fuel) {
