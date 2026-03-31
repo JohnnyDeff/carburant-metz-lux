@@ -3,10 +3,9 @@ const TOMTOM_KEY = 'CRDxsSiKnAMIpuYJQf3MNs78q25zKLBJ';
 const API_LUX_URL = '/api/lux-prices';
 const FR_API_URL = "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records";
 
-let luxePrices = { Diesel: 1.45, SP95: 1.55, SP98: 1.65, GPL: 0.85 }; // Secours
+let luxePrices = { Diesel: 1.45, SP95: 1.55, SP98: 1.65, GPL: 0.85 }; // Prix de secours
 let activeFuel = 'Diesel';
-let markers = [];
-let stationsList = [];
+let stationsList = []; // Stocke les données pour la liste HTML
 
 // ── INITIALISATION CARTE ──
 const map = L.map('map').setView([49.35, 6.15], 10);
@@ -14,9 +13,19 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; CartoDB | TomTom | OpenData'
 }).addTo(map);
 
+// ── INITIALISATION CLUSTERING ──
+// Ce groupe va automatiquement regrouper les stations trop proches
+const markerCluster = L.markerClusterGroup({
+    chunkedLoading: true,
+    spiderfyOnMaxZoom: true // Déploie les stations en toile d'araignée si on zoome au maximum
+});
+
+// ── GÉOLOCALISATION ──
 function locateUser() { map.locate({setView: true, maxZoom: 14}); }
 map.on('locationfound', (e) => {
-    L.circleMarker(e.latlng, { radius: 8, color: '#ffffff', fillColor: '#40bfff', fillOpacity: 0.9 }).addTo(map).bindPopup("Vous êtes ici").openPopup();
+    L.circleMarker(e.latlng, { radius: 8, color: '#ffffff', fillColor: '#40bfff', fillOpacity: 0.9 })
+        .addTo(map)
+        .bindPopup("Vous êtes ici").openPopup();
 });
 
 // ── TRADUCTEUR DE SERVICES EN EMOJIS ──
@@ -27,7 +36,6 @@ function getServicesIcons(servicesData, is24_24) {
     
     if (!servicesData) return icons;
 
-    // L'API peut renvoyer un tableau ou un texte séparé par des virgules
     const text = Array.isArray(servicesData) ? servicesData.join(" ").toLowerCase() : servicesData.toLowerCase();
 
     if (text.includes('toilettes')) icons += '🚻 ';
@@ -42,15 +50,16 @@ function getServicesIcons(servicesData, is24_24) {
 
 // ── CHARGEMENT DES DONNÉES ──
 async function loadData() {
+    // 1. LUXEMBOURG (Via ton Backend)
     try {
         const luxRes = await fetch(API_LUX_URL);
         if (luxRes.ok) luxePrices = await luxRes.json();
         renderLuPrices();
-    } catch (e) { console.warn("Backend Lux injoignable."); }
+    } catch (e) { console.warn("Backend Lux injoignable, utilisation des prix par défaut."); }
 
     stationsList = []; 
 
-    // FRANCE
+    // 2. FRANCE (Via API Gouv)
     try {
         const frRes = await fetch(`${FR_API_URL}?limit=100&where=code_departement%3D'57'`);
         const frData = await frRes.json();
@@ -62,14 +71,12 @@ async function loadData() {
                 
                 if (lat && lon) {
                     const finalName = s.name || s.marque || s.adresse || s.ville || "Station Service";
-                    
-                    // NOUVEAU : On génère les icônes de services
                     const iconsHTML = getServicesIcons(s.services_service, s.horaires_automate_24_24);
 
                     stationsList.push({
                         name: finalName,
                         lat: lat, lon: lon, country: 'FR',
-                        icons: iconsHTML, // On stocke les icônes
+                        icons: iconsHTML,
                         prices: {
                             Diesel: s.gazole_prix,
                             SP95: s.sp95_prix,
@@ -92,7 +99,7 @@ async function loadData() {
         }
     } catch (e) { console.error("Erreur API France:", e); }
 
-    // LUXEMBOURG
+    // 3. LUXEMBOURG PHYSIQUE (Via TomTom)
     try {
         const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=49.61&lon=6.13&radius=30000&limit=100`);
         const ttData = await ttRes.json();
@@ -103,7 +110,7 @@ async function loadData() {
                     stationsList.push({
                         name: poi.poi.name || "Station LUX",
                         lat: poi.position.lat, lon: poi.position.lon, country: 'LU',
-                        icons: '', // TomTom ne donne pas les services gratuitement
+                        icons: '', 
                         prices: luxePrices,
                         ruptures: {}
                     });
@@ -115,10 +122,11 @@ async function loadData() {
     updateDisplay();
 }
 
-// ── AFFICHAGE CARTE ET LISTE ──
+// ── AFFICHAGE CARTE ET LISTE (AVEC CLUSTERING) ──
 function updateDisplay() {
-    markers.forEach(m => map.removeLayer(m));
-    markers = [];
+    // On vide le groupe de clusters (remplace la boucle sur markers)
+    markerCluster.clearLayers();
+    
     let listHTML = '';
 
     stationsList.forEach(s => {
@@ -126,10 +134,12 @@ function updateDisplay() {
         const isRupture = s.ruptures && s.ruptures[activeFuel];
         
         if (isRupture) {
+            // Création du point RUPTURE (On ne l'ajoute pas à la map, on le garde en mémoire)
             const m = L.circleMarker([s.lat, s.lon], { radius: 8, fillColor: '#ef4444', color: "#000", weight: 1, fillOpacity: 0.9 })
-             .addTo(map)
              .bindPopup(`<b>${s.name}</b><br><span style="color:#ef4444; font-weight:bold; font-size:14px;">⚠️ EN RUPTURE</span>`);
-            markers.push(m);
+            
+            // ON AJOUTE AU CLUSTER
+            markerCluster.addLayer(m);
 
             listHTML += `
                 <div class="station-item" onclick="map.setView([${s.lat}, ${s.lon}], 15)" style="cursor:pointer; padding:5px; border-bottom:1px solid #444; opacity: 0.5;">
@@ -139,11 +149,11 @@ function updateDisplay() {
             `;
         } 
         else if (price) {
+            // Création du point NORMAL
             const luxRefPrice = luxePrices[activeFuel] || 1.5;
             let color = s.country === 'LU' ? '#60a5fa' : (price < luxRefPrice ? '#f0c040' : '#4ade80');
             const src = s.country === 'LU' ? "Luxembourg (National)" : "France (Officiel)";
             
-            // NOUVEAU : Intégration des icônes dans la Popup
             const popupContent = `
                 <div style="font-family: sans-serif;">
                     <b>${s.name}</b><br>
@@ -154,11 +164,11 @@ function updateDisplay() {
             `;
 
             const m = L.circleMarker([s.lat, s.lon], { radius: 8, fillColor: color, color: "#000", weight: 1, fillOpacity: 0.9 })
-             .addTo(map)
              .bindPopup(popupContent);
-            markers.push(m);
+            
+            // ON AJOUTE AU CLUSTER
+            markerCluster.addLayer(m);
 
-            // NOUVEAU : Intégration des icônes dans la liste latérale
             listHTML += `
                 <div class="station-item" onclick="map.setView([${s.lat}, ${s.lon}], 15)" style="cursor:pointer; padding:8px 5px; border-bottom:1px solid #444;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -172,6 +182,9 @@ function updateDisplay() {
             `;
         }
     });
+
+    // Ajout du cluster entier à la carte en une seule fois
+    map.addLayer(markerCluster);
 
     const listEl = document.getElementById('station-list');
     if (listEl) listEl.innerHTML = listHTML;
