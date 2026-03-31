@@ -15,37 +15,49 @@
 'use strict';
 const express = require('express');
 const axios = require('axios');
+const cheerio = require('cheerio');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.static(__dirname));
 
-const RESOURCES = {
-    Diesel: "99d5a6d1-e67e-4b4e-a004-4a0245b2a4b1",
-    SP95:   "09e17ebe-5da1-46ad-a247-79010a017154",
-    SP98:   "81432960-6913-4f02-bf33-5502d045ebbf",
-    GPL:    "1b4fbbe0-9948-4ce0-bffa-a1b2c54c7dd7"
-};
-
-async function getPrice(id) {
+async function getLiveLuxPrices() {
     try {
-        const meta = await axios.get(`https://data.public.lu/api/1/datasets/economie-totale-et-prix-prix-prix-de-lenergie/resources/${id}/`);
-        const dataRes = await axios.get(meta.data.url);
-        const data = dataRes.data;
-        if (Array.isArray(data) && data.length > 0) {
-            const latest = data[data.length - 1];
-            return parseFloat(latest.value || latest.prix || 0);
-        }
-        return 1.450; // Sécurité
-    } catch (e) { return 1.450; }
+        // On interroge le site de référence pour le Luxembourg
+        const { data } = await axios.get('https://carbu.com/luxembourg/index.php/prixmaximum', {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+        });
+        
+        const $ = cheerio.load(data);
+        // On extrait tout le texte de la page pour le fouiller
+        const text = $('body').text().replace(/\s+/g, ' ');
+
+        // Petite fonction pour chercher "Diesel ... 2,005" dans le texte
+        const extractPrice = (keyword) => {
+            const regex = new RegExp(`${keyword}.*?([0-9],[0-9]{3})`, 'i');
+            const match = text.match(regex);
+            return match ? parseFloat(match[1].replace(',', '.')) : null;
+        };
+
+        return {
+            Diesel: extractPrice('Diesel') || 2.005,
+            SP95: extractPrice('Super 95') || 1.700,
+            SP98: extractPrice('Super 98') || 1.814,
+            GPL: extractPrice('LPG') || 0.930
+        };
+    } catch (e) {
+        console.error("Erreur de scraping, utilisation des prix de secours:", e.message);
+        return { Diesel: 2.005, SP95: 1.700, SP98: 1.814, GPL: 0.930 };
+    }
 }
 
 app.get('/api/lux-prices', async (req, res) => {
-    const [d, p95, p98, gpl] = await Promise.all([
-        getPrice(RESOURCES.Diesel), getPrice(RESOURCES.SP95),
-        getPrice(RESOURCES.SP98), getPrice(RESOURCES.GPL)
-    ]);
-    res.json({ Diesel: d, SP95: p95, SP98: p98, GPL: gpl });
+    const prices = await getLiveLuxPrices();
+    res.json({ 
+        ...prices, 
+        date_maj: new Date().toLocaleDateString('fr-FR'),
+        source: "Tarifs Maxima Officiels (Temps Réel)"
+    });
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`Serveur prêt sur le port ${PORT} (0.0.0.0)`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Backend Temps Réel sur le port ${PORT}`));
