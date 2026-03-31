@@ -1,67 +1,72 @@
 // ── CONFIGURATION ──
 const TOMTOM_KEY = 'CRDxsSiKnAMIpuYJQf3MNs78q25zKLBJ';
 const API_LUX_URL = '/api/lux-prices';
+const API_BE_URL = '/api/belgium-prices'; // Nouvelle route backend pour la Belgique
 const FR_API_URL = "https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records";
 
+// Variables globales pour l'état de l'application
 let luxePrices = { Diesel: 1.55, SP95: 1.65, E10: 1.62, SP98: 1.78, GPL: 0.95, E85: 0.85 };
+let bePrices = { Diesel: 1.75, SP95: 1.70, E10: 1.70, SP98: 1.85, GPL: 0.80, E85: 0.90 }; // Valeurs secours BE
 let activeFuel = 'Diesel';
 let stationsList = [];
 
 // ── INITIALISATION CARTE ──
-const map = L.map('map').setView([49.45, 6.15], 10);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
-const markerCluster = L.markerClusterGroup({ chunkedLoading: true });
+const map = L.map('map').setView([49.45, 6.15], 10); // Centré sur le tripoint FR-LU-BE
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap | CartoDB | TomTom'
+}).addTo(map);
+
+// Groupe de clusters
+const markerCluster = L.markerClusterGroup({ 
+    chunkedLoading: true,
+    spiderfyOnMaxZoom: true 
+});
+
+// ── FONCTIONS UTILITAIRES ──
 
 function getIcons(serv, h24) {
-    let i = (h24 === "Oui" || h24 === true) ? '🕒 ' : '';
-    if (!serv) return i;
+    let icons = (h24 === "Oui" || h24 === true) ? '🕒 ' : '';
+    if (!serv) return icons;
     const s = Array.isArray(serv) ? serv.join(" ").toLowerCase() : serv.toLowerCase();
-    if (s.includes('toilettes')) i += '🚻 ';
-    if (s.includes('boutique')) i += '🛒 ';
-    if (s.includes('lavage')) i += '💦 ';
-    return i;
+    if (s.includes('toilettes')) icons += '🚻 ';
+    if (s.includes('boutique')) icons += '🛒 ';
+    if (s.includes('lavage')) icons += '💦 ';
+    return icons;
 }
 
-// ── CHARGEMENT ──
+// ── CHARGEMENT DES DONNÉES ──
+
 async function loadData() {
+    // 1. Récupération Prix LUX et BE (Parallèle pour gagner du temps)
     try {
-        const res = await fetch(API_LUX_URL);
-        if (res.ok) luxePrices = await res.json();
-    } catch (e) { console.warn("Prix Lux par défaut"); }
+        const [luxRes, beRes] = await Promise.all([
+            fetch(API_LUX_URL).catch(() => null),
+            fetch(API_BE_URL).catch(() => null)
+        ]);
+        
+        if (luxRes && luxRes.ok) luxePrices = await luxRes.json();
+        if (beRes && beRes.ok) bePrices = await beRes.json();
+        
+        console.log("Prix nationaux chargés (LU & BE)");
+    } catch (e) { console.warn("Utilisation des prix par défaut pour LU/BE"); }
 
     stationsList = [];
 
-    // 1. CHARGEMENT FRANCE (Syntaxe simplifiée pour éviter le HTTP 400)
+    // 2. CHARGEMENT FRANCE (Filtre départemental 54/57)
     try {
-        // On utilise distance(geom, point(lon, lat), rayon) qui est plus stable
-        const lon = 6.15;
-        const lat = 49.45;
-        const dist = 50000; // 50km en mètres
-        
-        const url = `${FR_API_URL}?limit=300&where=code_departement in ('57','54','55')`;
-        
-        console.log("Tentative URL France :", url); // Pour vérifier dans la console
-
-        const frRes = await fetch(url);
-        
-        if (!frRes.ok) {
-            throw new Error(`Erreur API France: ${frRes.status}`);
-        }
-
+        const urlFR = `${FR_API_URL}?limit=300&where=code_departement in ('57','54','55')`;
+        const frRes = await fetch(urlFR);
         const frData = await frRes.json();
-        console.log("Réponse API France reçue !");
-
+        
         if (frData.results) {
             frData.results.forEach(s => {
-                const sLat = s.geom?.lat || s.latitude;
-                const sLon = s.geom?.lon || s.longitude;
-
-                if (sLat && sLon) {
+                const lat = s.geom?.lat || s.latitude;
+                const lon = s.geom?.lon || s.longitude;
+                if (lat && lon) {
                     stationsList.push({
                         name: s.name || s.marque || s.ville || "Station FR",
-                        lat: parseFloat(sLat),
-                        lon: parseFloat(sLon),
-                        country: 'FR',
+                        lat: parseFloat(lat), lon: parseFloat(lon), country: 'FR',
                         icons: getIcons(s.services_service, s.horaires_automate_24_24),
                         prices: { 
                             Diesel: s.gazole_prix, SP95: s.sp95_prix, SP98: s.sp98_prix, 
@@ -76,60 +81,85 @@ async function loadData() {
                 }
             });
         }
-    } catch (e) { 
-        console.error("Détail Erreur France :", e); 
-    }
+    } catch (e) { console.error("Erreur API France :", e); }
 
-    // 2. CHARGEMENT LUXEMBOURG (TomTom)
+    // 3. CHARGEMENT LU & BE (Via TomTom)
     try {
-        const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=49.45&lon=6.15&radius=50000&limit=100`);
+        const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=49.45&lon=6.15&radius=50000&limit=200`);
         const ttData = await ttRes.json();
+        
         if (ttData.results) {
             ttData.results.forEach(poi => {
-                if (poi.address.countryCode === 'LU') {
+                const cCode = poi.address.countryCode;
+                if (cCode === 'LU' || cCode === 'BE') {
                     stationsList.push({
-                        name: poi.poi.name, lat: poi.position.lat, lon: poi.position.lon, country: 'LU',
-                        icons: '🕒', prices: luxePrices, ruptures: {}
+                        name: poi.poi.name,
+                        lat: poi.position.lat,
+                        lon: poi.position.lon,
+                        country: cCode,
+                        icons: '🕒', 
+                        prices: (cCode === 'LU') ? luxePrices : bePrices, 
+                        ruptures: {}
                     });
                 }
             });
         }
     } catch (e) { console.error("Erreur TomTom :", e); }
 
-    console.log("Total stations en mémoire :", stationsList.length);
+    console.log("Total stations chargées :", stationsList.length);
     updateDisplay();
 }
+
+// ── AFFICHAGE ──
 
 function updateDisplay() {
     markerCluster.clearLayers();
     let listHTML = '';
-    const fuelKey = activeFuel;
-    const refLux = luxePrices[fuelKey] || 1.6;
+    const refLux = luxePrices[activeFuel] || 1.6;
 
     stationsList.forEach(s => {
-        const p = s.prices[fuelKey];
-        if (s.ruptures[fuelKey]) {
-            const m = L.circleMarker([s.lat, s.lon], { radius: 6, color: '#ef4444' })
-                      .bindPopup(`<b>${s.name}</b><br>RUPTURE`);
+        const p = s.prices[activeFuel];
+        const isRupture = s.ruptures[activeFuel];
+        
+        if (isRupture) {
+            const m = L.circleMarker([s.lat, s.lon], { radius: 6, fillColor: '#ef4444', color: '#000', weight: 1, fillOpacity: 0.8 })
+                      .bindPopup(`<b>${s.name}</b><br><b style="color:#ef4444">RUPTURE</b>`);
             markerCluster.addLayer(m);
-        } else if (p) {
-            let col = s.country === 'LU' ? '#60a5fa' : (p < refLux ? '#fbbf24' : '#10b981');
-            const m = L.circleMarker([s.lat, s.lon], { radius: 8, fillColor: col, color: '#000', weight: 1, fillOpacity: 0.9 })
-                      .bindPopup(`<b>${s.name}</b><br>${p.toFixed(3)}€<br>${s.icons}`);
-            markerCluster.addLayer(m);
+        } 
+        else if (p) {
+            // LOGIQUE DES COULEURS
+            let col;
+            if (s.country === 'LU') {
+                col = '#60a5fa'; // BLEU LUX
+            } else if (s.country === 'BE') {
+                col = '#f97316'; // ORANGE BELGIQUE
+            } else {
+                // FRANCE : JAUNE SI MOINS CHER QUE LUX, VERT SINON
+                col = (p < refLux) ? '#fbbf24' : '#10b981';
+            }
             
-            listHTML += `<div class="station-item" onclick="map.setView([${s.lat}, ${s.lon}], 14)">
-                <div style="display:flex; justify-content:space-between;">
-                    <span><b>${s.name}</b><br><small>${s.icons}</small></span>
-                    <b style="color:${col}">${p.toFixed(3)}€</b>
-                </div></div>`;
+            const popup = `<div><b>${s.name}</b><br><span style="font-size:15px; font-weight:bold;">${p.toFixed(3)} €</span><br>${s.icons}</div>`;
+
+            const m = L.circleMarker([s.lat, s.lon], { radius: 8, fillColor: col, color: '#000', weight: 1, fillOpacity: 0.9 })
+                      .bindPopup(popup);
+            markerCluster.addLayer(m);
+
+            listHTML += `
+                <div class="station-item" onclick="map.setView([${s.lat}, ${s.lon}], 14)" style="cursor:pointer;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div class="st-name"><b>${s.name}</b><br><small>${s.icons}</small></div>
+                        <div style="color:${col}; font-weight:bold;">${p.toFixed(3)}€</div>
+                    </div>
+                </div>`;
         }
     });
 
     map.addLayer(markerCluster);
     document.getElementById('station-list').innerHTML = listHTML;
-    renderLuPrices();
+    renderPricesPanel();
 }
+
+// ── UI ──
 
 function setFuel(btn, fuel) {
     document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
@@ -138,15 +168,28 @@ function setFuel(btn, fuel) {
     updateDisplay();
 }
 
-function renderLuPrices() {
+function renderPricesPanel() {
     const el = document.getElementById('lu-prices');
     if (!el) return;
-    el.innerHTML = ['Diesel', 'SP95', 'E10', 'SP98', 'GPL', 'E85'].map(f => `
-        <div style="display:flex; justify-content:space-between; font-size:13px;">
-            <span>${f}</span><b>${luxePrices[f] ? luxePrices[f].toFixed(3) + '€' : 'NC'}</b>
-        </div>`).join('');
+    
+    // On affiche les deux pays dans le panneau latéral
+    el.innerHTML = `
+        <div style="margin-bottom:10px; border-bottom:1px solid #444; padding-bottom:5px;">
+            <small style="color:#60a5fa; font-weight:bold;">🇱🇺 LUXEMBOURG</small>
+            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                <span>${activeFuel}</span><b>${luxePrices[activeFuel]?.toFixed(3)}€</b>
+            </div>
+        </div>
+        <div>
+            <small style="color:#f97316; font-weight:bold;">🇧🇪 BELGIQUE</small>
+            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                <span>${activeFuel}</span><b>${bePrices[activeFuel]?.toFixed(3)}€</b>
+            </div>
+        </div>
+    `;
 }
 
 function locateUser() { map.locate({setView: true, maxZoom: 13}); }
 
+// GO !
 loadData();
