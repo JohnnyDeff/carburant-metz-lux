@@ -38,7 +38,7 @@ async function loadData() {
         const lat = 49.45;
         const dist = 50000; // 50km en mètres
         
-        const url = `${FR_API_URL}?limit=100&where=code_departement in ('57','54')`;
+        const url = `${FR_API_URL}?limit=300&where=code_departement in ('57','54','55')`;
         
         console.log("Tentative URL France :", url); // Pour vérifier dans la console
 
