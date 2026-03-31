@@ -14,7 +14,7 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; CartoDB | TomTom | OpenData'
 }).addTo(map);
 
-// ── GÉOLOCALISATION (Rétablie pour ton bouton HTML !) ──
+// ── GÉOLOCALISATION ──
 function locateUser() {
     map.locate({setView: true, maxZoom: 14});
 }
@@ -33,16 +33,15 @@ async function loadData() {
         renderLuPrices();
     } catch (e) { console.warn("Backend Lux injoignable, utilisation des prix par défaut."); }
 
-    stationsList = []; // On réinitialise la mémoire
+    stationsList = []; 
 
-    // 2. FRANCE (Via API Gouv direct)
+    // 2. FRANCE (Via API Gouv)
     try {
         const frRes = await fetch(`${FR_API_URL}?limit=100&where=code_departement%3D'57'`);
         const frData = await frRes.json();
         
         if (frData.results) {
             frData.results.forEach(s => {
-                // Extraction compatible avec tes fichiers JSON/GeoJSON
                 const lat = s.geom?.lat || (s.geometry?.coordinates ? s.geometry.coordinates[1] : null) || s.latitude;
                 const lon = s.geom?.lon || (s.geometry?.coordinates ? s.geometry.coordinates[0] : null) || s.longitude;
                 
@@ -73,27 +72,24 @@ async function loadData() {
                     stationsList.push({
                         name: poi.poi.name || "Station LUX",
                         lat: poi.position.lat, lon: poi.position.lon, country: 'LU',
-                        prices: luxePrices // Le prix national s'applique à toutes
+                        prices: luxePrices 
                     });
                 }
             });
         }
     } catch (e) { console.error("Erreur TomTom:", e); }
 
-    // Une fois que tout est trié en mémoire, on dessine la carte !
     updateDisplay();
 }
 
 // ── AFFICHAGE CARTE ET LISTE INTERACTIVE ──
 function updateDisplay() {
-    // 1. Effacer les anciens points
     markers.forEach(m => map.removeLayer(m));
     markers = [];
 
     const listEl = document.getElementById('station-list');
     let listHTML = '';
 
-    // 2. Dessiner les nouveaux points selon le carburant actif
     stationsList.forEach(s => {
         const price = s.prices[activeFuel];
         
@@ -108,7 +104,6 @@ function updateDisplay() {
             
             markers.push(m);
 
-            // Ajout du point dans ta liste sur le côté gauche de l'écran
             listHTML += `
                 <div class="station-item" onclick="map.setView([${s.lat}, ${s.lon}], 15)" style="cursor:pointer; padding:5px; border-bottom:1px solid #444;">
                     <div class="st-name"><b>${s.name}</b></div>
@@ -126,7 +121,7 @@ function setFuel(btn, fuel) {
     document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
     if(btn) btn.classList.add('active');
     activeFuel = fuel;
-    updateDisplay(); // Redessine la carte instantanément
+    updateDisplay(); 
 }
 
 function renderLuPrices() {
