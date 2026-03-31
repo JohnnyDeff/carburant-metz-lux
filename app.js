@@ -1,5 +1,5 @@
 /* ── VARIABLES & GLOBALES ── */
-:root {
+root {
     --bg-dark: #111827;       /* Fond principal (très sombre) */
     --bg-panel: #1f2937;      /* Fond secondaire (panneaux, popups) */
     --text-main: #f3f4f6;     /* Texte principal (blanc cassé) */
