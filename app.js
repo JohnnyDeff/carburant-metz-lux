@@ -39,10 +39,17 @@ async function getFranceData() {
     statusEl.textContent = 'Chargement stations…';
 
     try {
-        // BUG CORRIGÉ : l'API v2.1 attend le NOM du département, pas le numéro
-        // "57" retourne 0 résultats → "Moselle" retourne les stations
-        const url = `${FR_API_URL}?limit=100&refine=departement%3A%22Moselle%22` +
-                    `&select=name,address,city,latitude,longitude,prix_diesel,prix_essence_95,prix_essence_98,rupture`;
+        // Vrais noms de champs confirmés dans les exports officiels du dataset :
+        // gazole_prix / sp95_prix / sp98_prix  (pas prix_diesel / prix_essence_95)
+        // Filtre département : where=code_departement='57'  (pas refine=departement)
+        const params = new URLSearchParams({
+            limit:  '100',
+            where:  "code_departement='57'",
+            select: 'id,name,adresse,ville,geom,gazole_prix,sp95_prix,sp98_prix,' +
+                    'gazole_maj,sp95_maj,sp98_maj,' +
+                    'sp95_rupture_debut,sp98_rupture_debut,gazole_rupture_debut'
+        });
+        const url = `${FR_API_URL}?${params}`;
 
         const res  = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -50,20 +57,28 @@ async function getFranceData() {
 
         if (!data.results || !data.results.length) throw new Error('Aucun résultat API France');
 
-        // BUG CORRIGÉ : les clés correspondent exactement aux champs de l'API
-        stations = data.results.map(s => ({
-            name:     s.name     || 'Station',
-            city:     s.city     || '',           // jamais null → plus de crash
-            address:  s.address  || '',
-            lat:      parseFloat(s.latitude),
-            lon:      parseFloat(s.longitude),
-            rupture:  s.rupture  || [],
-            prices: {
-                Diesel: s.prix_diesel      || null,
-                SP95:   s.prix_essence_95  || null,   // BUG CORRIGÉ : bon nom de champ
-                SP98:   s.prix_essence_98  || null,
-            }
-        }));
+        stations = data.results.map(s => {
+            // Coordonnées : le champ geom est { lon, lat } ou { coordinates: [lon, lat] }
+            const coords = s.geom?.coordinates || [s.geom?.lon, s.geom?.lat] || [null, null];
+            const ruptures = [
+                s.gazole_rupture_debut && 'Diesel',
+                s.sp95_rupture_debut   && 'SP95',
+                s.sp98_rupture_debut   && 'SP98',
+            ].filter(Boolean);
+            return {
+                name:    s.name    || 'Station',
+                city:    s.ville   || '',
+                address: s.adresse || '',
+                lat:     parseFloat(coords[1]),
+                lon:     parseFloat(coords[0]),
+                rupture: ruptures,
+                prices: {
+                    Diesel: s.gazole_prix || null,
+                    SP95:   s.sp95_prix   || null,
+                    SP98:   s.sp98_prix   || null,
+                }
+            };
+        });
 
         calculateAverages();
         updateMarkers();
