@@ -13,67 +13,57 @@
  */
 
 'use strict';
-
 const express = require('express');
-const axios   = require('axios');
-const cheerio = require('cheerio');
-
-const app  = express();
+const axios = require('axios');
+const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.static(__dirname));
 
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    next();
-});
-
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-let cache = { data: null, expires_at: 0 };
-
-const FALLBACK = {
-    Diesel: 1.418,
-    SP95:   1.540,
-    SP98:   1.684,
-    GPL:    0.820,
-    date_maj: '01/03/2026',
-    source: 'Fallback statique (Backend Offline)',
-    is_fallback: true
-};
-
-async function fetchDataPublicLu() {
-    const searchUrl = 'https://data.public.lu/api/1/datasets/?q=prix+carburants&page_size=5';
-    const searchRes = await axios.get(searchUrl, { timeout: 8000 });
-    const dataset = searchRes.data.data.find(d => d.title?.toLowerCase().includes('carburant'));
-    if (!dataset) throw new Error('Dataset introuvable');
-
-    const dsRes = await axios.get(`https://data.public.lu/api/1/datasets/${dataset.id}/`);
-    const resource = dsRes.data.resources.find(r => r.format === 'csv' || r.format === 'json');
-    if (!resource) throw new Error('Ressource introuvable');
-    
-    return { Diesel: 1.418, SP95: 1.540, SP98: 1.684, GPL: 0.820, date_maj: new Date().toLocaleDateString('fr-FR'), source: 'data.public.lu' };
-}
-
-async function fetchPrices() {
+// Fonction générique pour récupérer le prix actuel d'une ressource Statec
+async function getDynamicPrice(resourceId) {
     try {
-        return await fetchDataPublicLu();
-    } catch (err) {
-        console.warn("[scraping] Echec source 1, utilisation Fallback");
-        return FALLBACK;
+        // 1. Récupération des métadonnées de la ressource
+        const metaUrl = `https://data.public.lu/api/1/datasets/economie-totale-et-prix-prix-prix-de-lenergie/resources/${resourceId}/`;
+        const meta = await axios.get(metaUrl);
+        
+        // 2. Téléchargement du fichier de données (JSON)
+        const fileRes = await axios.get(meta.data.url);
+        const data = fileRes.data;
+
+        // 3. Extraction de la dernière valeur chronologique
+        if (Array.isArray(data) && data.length > 0) {
+            const latest = data[data.length - 1];
+            return parseFloat(latest.value || latest.prix || 0);
+        }
+        return null;
+    } catch (e) {
+        console.error(`Erreur ressource ${resourceId}:`, e.message);
+        return null;
     }
 }
 
 app.get('/api/lux-prices', async (req, res) => {
     try {
-        if (cache.data && Date.now() < cache.expires_at) return res.json(cache.data);
-        const data = await fetchPrices();
-        cache = { data, expires_at: Date.now() + CACHE_TTL_MS };
-        res.json(data);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+        // IDs des ressources identifiées sur data.public.lu
+        const [diesel, sp95, sp98, gpl] = await Promise.all([
+            getDynamicPrice("99d5a6d1-e67e-4b4e-a004-4a0245b2a4b1"), // Gasoil
+            getDynamicPrice("09e17ebe-5da1-46ad-a247-79010a017154"), // Sans Plomb 95
+            getDynamicPrice("81432960-6913-4f02-bf33-5502d045ebbf"), // Sans Plomb 98
+            getDynamicPrice("1b4fbbe0-9948-4ce0-bffa-a1b2c54c7dd7")  // GPL (LPG)
+        ]);
+
+        res.json({
+            Diesel: diesel,
+            SP95: sp95,
+            SP98: sp98,
+            GPL: gpl,
+            date_maj: new Date().toLocaleDateString('fr-FR'),
+            source: "STATEC Live Data"
+        });
+    } catch (error) {
+        res.status(500).json({ error: "Erreur de synchronisation avec le Statec" });
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`⛽ Serveur démarré sur le port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Serveur actif sur le port ${PORT}`));
