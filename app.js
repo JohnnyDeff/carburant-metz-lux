@@ -50,7 +50,7 @@ async function loadData() {
                             Diesel: s.gazole_prix,
                             SP95: s.sp95_prix,
                             SP98: s.sp98_prix,
-                            GPL: s.gpl_prix
+                            GPL: s.gpl_prix,
                             E10: s.e10_prix,
                             E85: s.e85_prix
                         },
