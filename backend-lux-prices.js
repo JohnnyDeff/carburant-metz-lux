@@ -22,7 +22,6 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.static('public')); 
 
-// Faux navigateur pour éviter d'être bloqué par les sécurités anti-bots
 const axiosConfig = {
     headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -32,6 +31,8 @@ const axiosConfig = {
 
 // --- PRIX LUXEMBOURG ---
 app.get('/api/lux-prices', async (req, res) => {
+    // Prix de secours si le site est en panne
+    let fallbackPrices = { Diesel: 1.55, SP95: 1.65, E10: 1.62, SP98: 1.78 };
     try {
         const response = await axios.get('https://familiale.lu/petrol-prices', axiosConfig);
         const $ = cheerio.load(response.data);
@@ -43,19 +44,22 @@ app.get('/api/lux-prices', async (req, res) => {
             if (name.includes('95')) prices.SP95 = prices.E10 = price;
             if (name.includes('98')) prices.SP98 = price;
         });
+        
+        if (Object.keys(prices).length === 0) throw new Error("Site vide");
         res.json(prices);
     } catch (e) { 
-        console.error("Erreur Backend Lux :", e.message);
-        res.status(500).json({ error: "Erreur Lux" }); 
+        console.error("Alerte Lux : Site injoignable, utilisation des prix de secours.");
+        res.json(fallbackPrices); // On renvoie un succès avec les prix de secours au lieu d'une erreur 500
     }
 });
 
 // --- PRIX BELGIQUE ---
 app.get('/api/belgium-prices', async (req, res) => {
+    let fallbackPrices = { Diesel: 1.75, SP95: 1.70, E10: 1.70, SP98: 1.85 };
     try {
         const response = await axios.get('https://www.energiafed.be/fr/prix-maximums', axiosConfig);
         const $ = cheerio.load(response.data);
-        let prices = { Diesel: 1.75, SP95: 1.70, E10: 1.70, SP98: 1.85 };
+        let prices = {};
         $('table tr').each((i, el) => {
             const text = $(el).text().toLowerCase();
             const val = parseFloat($(el).find('td').eq(1).text().replace(',', '.'));
@@ -63,10 +67,12 @@ app.get('/api/belgium-prices', async (req, res) => {
             if (text.includes('95') && !isNaN(val)) { prices.SP95 = val; prices.E10 = val; }
             if (text.includes('98') && !isNaN(val)) prices.SP98 = val;
         });
+        
+        if (Object.keys(prices).length === 0) throw new Error("Site vide");
         res.json(prices);
     } catch (e) { 
-        console.error("Erreur Backend Belgique :", e.message);
-        res.json({ Diesel: 1.75, SP95: 1.70, E10: 1.70, SP98: 1.85 }); 
+        console.error("Alerte BE : Site injoignable, utilisation des prix de secours.");
+        res.json(fallbackPrices); 
     }
 });
 
@@ -74,15 +80,21 @@ app.get('/api/belgium-prices', async (req, res) => {
 app.get('/api/france-proxy', async (req, res) => {
     try {
         const { lat, lng } = req.query;
-        // Encodage strict de la clause 'where' pour éviter que l'API plante
-        const whereClause = `distance(geom, geom'POINT(${lng} ${lat})', 50000)`;
-        const encodedWhere = encodeURIComponent(whereClause);
-        const url = `https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records?limit=150&where=${encodedWhere}`;
+        const url = 'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records';
         
-        const response = await axios.get(url, axiosConfig);
+        // On laisse Axios gérer l'encodage complexe de la syntaxe Opendatasoft
+        const response = await axios.get(url, {
+            ...axiosConfig,
+            params: {
+                limit: 150,
+                where: `within_distance(geom, GEOM'POINT(${lng} ${lat})', 50km)`
+            }
+        });
+        
         res.json(response.data);
     } catch (error) {
-        console.error("Erreur Backend France :", error.message);
+        // En cas de nouvelle erreur, le log affichera le message exact de l'API France
+        console.error("Erreur API France :", error.response?.data || error.message);
         res.status(500).json({ error: "L'API France est inaccessible" });
     }
 });
