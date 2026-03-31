@@ -20,50 +20,54 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.static(__dirname));
 
-// Fonction générique pour récupérer le prix actuel d'une ressource Statec
-async function getDynamicPrice(resourceId) {
-    try {
-        // 1. Récupération des métadonnées de la ressource
-        const metaUrl = `https://data.public.lu/api/1/datasets/economie-totale-et-prix-prix-prix-de-lenergie/resources/${resourceId}/`;
-        const meta = await axios.get(metaUrl);
-        
-        // 2. Téléchargement du fichier de données (JSON)
-        const fileRes = await axios.get(meta.data.url);
-        const data = fileRes.data;
+// IDs des ressources Statec fournies
+const RESOURCES = {
+    Diesel: "99d5a6d1-e67e-4b4e-a004-4a0245b2a4b1",
+    SP95:   "09e17ebe-5da1-46ad-a247-79010a017154",
+    SP98:   "81432960-6913-4f02-bf33-5502d045ebbf",
+    GPL:    "1b4fbbe0-9948-4ce0-bffa-a1b2c54c7dd7"
+};
 
-        // 3. Extraction de la dernière valeur chronologique
+async function getPrice(id) {
+    try {
+        // 1. Appel API pour avoir l'URL du fichier actuel
+        const meta = await axios.get(`https://data.public.lu/api/1/datasets/economie-totale-et-prix-prix-prix-de-lenergie/resources/${id}/`);
+        // 2. Récupération du JSON
+        const dataRes = await axios.get(meta.data.url);
+        const data = dataRes.data;
+        // 3. Extraction de la dernière valeur (Format Statec: liste d'objets)
         if (Array.isArray(data) && data.length > 0) {
             const latest = data[data.length - 1];
             return parseFloat(latest.value || latest.prix || 0);
         }
         return null;
     } catch (e) {
-        console.error(`Erreur ressource ${resourceId}:`, e.message);
+        console.error(`Erreur ressource ${id}:`, e.message);
         return null;
     }
 }
 
 app.get('/api/lux-prices', async (req, res) => {
     try {
-        // IDs des ressources identifiées sur data.public.lu
-        const [diesel, sp95, sp98, gpl] = await Promise.all([
-            getDynamicPrice("99d5a6d1-e67e-4b4e-a004-4a0245b2a4b1"), // Gasoil
-            getDynamicPrice("09e17ebe-5da1-46ad-a247-79010a017154"), // Sans Plomb 95
-            getDynamicPrice("81432960-6913-4f02-bf33-5502d045ebbf"), // Sans Plomb 98
-            getDynamicPrice("1b4fbbe0-9948-4ce0-bffa-a1b2c54c7dd7")  // GPL (LPG)
+        // On récupère tout en même temps
+        const [d, p95, p98, gpl] = await Promise.all([
+            getPrice(RESOURCES.Diesel),
+            getPrice(RESOURCES.SP95),
+            getPrice(RESOURCES.SP98),
+            getPrice(RESOURCES.GPL)
         ]);
 
         res.json({
-            Diesel: diesel,
-            SP95: sp95,
-            SP98: sp98,
+            Diesel: d,
+            SP95: p95,
+            SP98: p98,
             GPL: gpl,
             date_maj: new Date().toLocaleDateString('fr-FR'),
-            source: "STATEC Live Data"
+            source: "STATEC Live"
         });
     } catch (error) {
-        res.status(500).json({ error: "Erreur de synchronisation avec le Statec" });
+        res.status(500).json({ error: "Erreur synchronisation Statec" });
     }
 });
 
-app.listen(PORT, () => console.log(`🚀 Serveur actif sur le port ${PORT}`));
+app.listen(PORT, () => console.log(`Backend opérationnel sur le port ${PORT}`));
