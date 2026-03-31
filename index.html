@@ -1,105 +1,54 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Carburant Metz – Luxembourg</title>
-  
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⛽</text></svg>">
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700&display=swap" rel="stylesheet"/>
-  
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carbu-Comparateur | Metz-Lux-Bel</title>
+    
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⛽</text></svg>">
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
-<script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
-
-<script src="app.js"></script>
-  <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+    
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<header>
-  <div class="logo">
-    <div class="logo-dot"></div>
-    Carburant Metz · Luxembourg
-  </div>
-  
-  <div style="display: flex; gap: 12px; align-items: center;">
-    <button class="pill" onclick="locateUser()" style="border-color: #60a5fa; color: #60a5fa; cursor: pointer;">
-      📍 Me localiser
-    </button>
+    <div id="sidebar">
+        <div class="sidebar-header">
+            <h1>Gas-Finder ⛽</h1>
+            <div class="section-label">Prix Nationaux Lux</div>
+            <div id="lu-prices">
+                <small>Chargement...</small>
+            </div>
+
+            <div class="section-label">Carburant souhaité</div>
+            <div class="filters">
+                <button class="pill active" onclick="setFuel(this,'Diesel')">Diesel</button>
+                <button class="pill" onclick="setFuel(this,'SP95')">SP95</button>
+                <button class="pill" onclick="setFuel(this,'E10')">E10</button>
+                <button class="pill" onclick="setFuel(this,'SP98')">SP98</button>
+                <button class="pill" onclick="setFuel(this,'GPL')">GPL</button>
+                <button class="pill" onclick="setFuel(this,'E85')">E85</button>
+            </div>
+            
+            <button class="pill" onclick="locateUser()" style="width:100%; margin-top:10px; background:#4b5563;">📍 Me géolocaliser</button>
+        </div>
+
+        <div id="station-list">
+            </div>
+    </div>
+
+    <div id="map-container">
+        <div id="map"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     
-    <div class="status-chip">
-      <div class="live-dot" id="live-dot"></div>
-      <span id="status-text">Initialisation…</span>
-    </div>
-  </div>
-</header>
+    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+    
+    <script src="app.js"></script>
 
-<div class="main">
-  <div class="sidebar">
-    <div class="sidebar-inner">
-
-      <div class="savings hidden" id="savings-banner">
-        <div>
-          <div style="font-size:11px;color:rgba(74,222,128,.7);margin-bottom:2px">Économie estimée au Luxembourg</div>
-          <div class="savings-sub" id="savings-note">Pour un plein de 50 L</div>
-        </div>
-        <div class="savings-num" id="savings-val">—</div>
-      </div>
-
-      <div class="section-label">Comparaison des prix</div>
-      <div class="price-grid">
-        <div class="price-card">
-          <div class="price-card-title">France · Moy. Moselle</div>
-          <div id="fr-prices"><div style="color:var(--muted)">Chargement…</div></div>
-        </div>
-        <div class="price-card">
-          <div class="price-card-title">Luxembourg (Officiel)</div>
-          <div id="lu-prices"><div style="color:var(--muted)">Chargement…</div></div>
-          <div class="lu-note">
-             Source : <span id="lu-source-name">OpenData Lux</span>
-            <span id="lu-date-label"></span>
-          </div>
-        </div>
-      </div>
-
-      <div class="section-label">Filtre des carburants</div>
-<div class="filters" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 15px;">
-    <button class="pill active" onclick="setFuel(this,'Diesel')">Diesel</button>
-    <button class="pill" onclick="setFuel(this,'SP95')">SP95</button>
-    <button class="pill" onclick="setFuel(this,'E10')">E10</button>
-    <button class="pill" onclick="setFuel(this,'SP98')">SP98</button>
-    <button class="pill" onclick="setFuel(this,'GPL')">GPL</button>
-    <button class="pill" onclick="setFuel(this,'E85')">E85</button>
-</div>
-      
-      <input type="text" id="search" placeholder="Filtrer par ville…" oninput="renderList()"/>
-      
-      <div class="count-label" id="count-label">Recherche de stations...</div>
-      
-      <div class="station-list" id="station-list">
-        <div class="empty">Chargement des stations…</div>
-      </div>
-
-    </div>
-  </div>
-
-  <div class="map-container">
-    <div id="map"></div>
-    <button id="search-btn" onclick="searchArea()" style="display: none;">🔄 Rechercher dans cette zone</button>
-    <div class="map-legend">
-      <div class="legend-item"><div class="legend-dot" style="background:#4ade80"></div> Station ouverte</div>
-      <div class="legend-item"><div class="legend-dot" style="background:#f0c040"></div> Moins cher que LU</div>
-      <div class="legend-item"><div class="legend-dot" style="background:#60a5fa"></div> Luxembourg (ref)</div>
-    </div>
-  </div>
-</div>
-
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js"></script>
 </body>
 </html>
