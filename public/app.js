@@ -69,7 +69,7 @@ async function loadData(lat = 49.45, lng = 6.15) {
 
     // 3. TOMTOM (LUX & BE)
     try {
-        const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=${lat}&lon=${lng}&radius=50000&limit=100`);
+        const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=${lat}&lon=${lng}&radius=50000&limit=100&countrySet=LU,BE`);
         const ttData = await ttRes.json();
         if (ttData.results) {
             ttData.results.forEach(poi => {
