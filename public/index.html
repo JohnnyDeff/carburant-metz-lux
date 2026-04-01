@@ -2,54 +2,41 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://unpkg.com https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com https://api.tomtom.com; script-src 'self' 'unsafe-inline' 'unsafe-hashes' https://unpkg.com; img-src 'self' data: https://unpkg.com https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; style-src 'self' 'unsafe-inline' https://unpkg.com;">
+    <title>Carburants Frontaliers & Élec</title>
     
-    <title>Carbu-Metz-Lux</title>
-    
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⛽</text></svg>">
-
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
-    
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-    <div id="sidebar">
-        <div class="sidebar-header">
-            <h1>Gas-Finder ⛽</h1>
-            <div class="section-label">Prix Nationaux Lux</div>
-            <div id="lu-prices">
-                <small>Chargement...</small>
-            </div>
-
-            <div class="section-label">Carburant souhaité</div>
-            <div class="filters">
-                <button class="pill active" onclick="setFuel(this,'Diesel')">Diesel</button>
-                <button class="pill" onclick="setFuel(this,'SP95')">SP95</button>
-                <button class="pill" onclick="setFuel(this,'E10')">E10</button>
-                <button class="pill" onclick="setFuel(this,'SP98')">SP98</button>
-                <button class="pill" onclick="setFuel(this,'GPL')">GPL</button>
-                <button class="pill" onclick="setFuel(this,'E85')">E85</button>
+    <div class="container">
+        
+        <div id="sidebar">
+            <div class="controls-header">
+                <button class="btn-action" onclick="locateUser()">📍 Autour de moi</button>
+                <button class="btn-action" onclick="toggleTheme()" id="theme-btn">☀️ Thème Clair</button>
             </div>
             
-            <button class="pill" onclick="locateUser()" style="width:100%; margin-top:10px; background:#4b5563;">📍 Me géolocaliser</button>
+            <div class="fuel-filters">
+                <button class="pill active" onclick="filterFuel('Diesel')" id="btn-Diesel">Diesel</button>
+                <button class="pill" onclick="filterFuel('SP95')" id="btn-SP95">SP95 / E10</button>
+                <button class="pill" onclick="filterFuel('SP98')" id="btn-SP98">SP98</button>
+                <button class="pill elec-btn" onclick="filterFuel('Elec')" id="btn-Elec">⚡ Élec</button>
+            </div>
+
+            <div id="stations-list">
+                <div style="padding: 15px; text-align: center; color: #888;">
+                    Chargement de la carte...
+                </div>
+            </div>
         </div>
 
-        <div id="station-list">
-            </div>
-    </div>
-
-    <div id="map-container">
         <div id="map"></div>
+        
     </div>
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-    
-    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
-    
     <script src="app.js"></script>
-
 </body>
 </html>
