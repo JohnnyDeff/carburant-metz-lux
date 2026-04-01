@@ -41,12 +41,19 @@ const CACHE_DURATION_GEO = 10 * 60 * 1000; // 10 minutes pour FR/DE
 
 // --- LE TRAVAILLEUR DE L'OMBRE (Tâches en arrière-plan) ---
 async function fetchNationalPricesBackground() {
-    console.log("🔄 Lancement de la mise à jour des prix nationaux en arrière-plan...");
+    console.log("🔄 Lancement de la mise à jour des prix nationaux via Proxy AllOrigins...");
     
+    // La fonction magique qui contourne les pare-feux anti-bots
+    async function fetchWithProxy(targetUrl) {
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+        const res = await axios.get(proxyUrl);
+        return res.data.contents; // Le HTML du site est caché ici
+    }
+
     // Tente de mettre à jour le Luxembourg
     try {
-        const res = await axios.get('https://familiale.lu/petrol-prices', axiosConfig);
-        const $ = cheerio.load(res.data);
+        const html = await fetchWithProxy('https://familiale.lu/petrol-prices');
+        const $ = cheerio.load(html);
         let newLux = {};
         $('.price-item').each((i, el) => {
             const name = $(el).find('.fuel-name').text().trim();
@@ -55,15 +62,19 @@ async function fetchNationalPricesBackground() {
             if (name.includes('95')) newLux.SP95 = newLux.E10 = price;
             if (name.includes('98')) newLux.SP98 = price;
         });
-        if (Object.keys(newLux).length > 0) memoryPrices.lux = newLux;
+        
+        if (Object.keys(newLux).length > 0) {
+            memoryPrices.lux = newLux;
+            console.log("✅ LUX mis à jour avec succès :", newLux);
+        }
     } catch (e) {
-        console.log("⚠️ Scraper LUX injoignable, conservation des prix en mémoire.");
+        console.log("⚠️ Échec LUX via proxy, conservation de la mémoire.");
     }
 
     // Tente de mettre à jour la Belgique
     try {
-        const res = await axios.get('https://www.energiafed.be/fr/prix-maximums', axiosConfig);
-        const $ = cheerio.load(res.data);
+        const html = await fetchWithProxy('https://www.energiafed.be/fr/prix-maximums');
+        const $ = cheerio.load(html);
         let newBel = {};
         $('table tr').each((i, el) => {
             const text = $(el).text().toLowerCase();
@@ -72,9 +83,13 @@ async function fetchNationalPricesBackground() {
             if (text.includes('95') && !isNaN(val)) { newBel.SP95 = val; newBel.E10 = val; }
             if (text.includes('98') && !isNaN(val)) newBel.SP98 = val;
         });
-        if (Object.keys(newBel).length > 0) memoryPrices.bel = newBel;
+        
+        if (Object.keys(newBel).length > 0) {
+            memoryPrices.bel = newBel;
+            console.log("✅ BEL mis à jour avec succès :", newBel);
+        }
     } catch (e) {
-        console.log("⚠️ Scraper BEL injoignable, conservation des prix en mémoire.");
+        console.log("⚠️ Échec BEL via proxy, conservation de la mémoire.");
     }
 }
 
