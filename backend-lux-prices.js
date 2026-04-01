@@ -20,7 +20,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.static('public')); 
+app.use(express.static('public'));
 
 const axiosConfig = {
     headers: {
@@ -29,10 +29,26 @@ const axiosConfig = {
     }
 };
 
+// --- LE SYSTÈME DE CACHE ---
+const cache = {
+    lux: { data: null, time: 0 },
+    bel: { data: null, time: 0 },
+    france: {},  // Va stocker par zone géographique
+    germany: {}  // Va stocker par zone géographique
+};
+const CACHE_DURATION_GLOBAL = 30 * 60 * 1000; // 30 minutes pour LU/BE (les prix changent 1x par jour)
+const CACHE_DURATION_GEO = 10 * 60 * 1000;    // 10 minutes pour FR/DE (évite le spam quand on bouge la carte)
+
 // --- PRIX LUXEMBOURG ---
 app.get('/api/lux-prices', async (req, res) => {
-    // Prix de secours si le site est en panne
     let fallbackPrices = { Diesel: 1.55, SP95: 1.65, E10: 1.62, SP98: 1.78 };
+    
+    // Vérification du cache
+    if (cache.lux.data && (Date.now() - cache.lux.time < CACHE_DURATION_GLOBAL)) {
+        console.log("LUX : Servi depuis le cache !");
+        return res.json(cache.lux.data);
+    }
+
     try {
         const response = await axios.get('https://familiale.lu/petrol-prices', axiosConfig);
         const $ = cheerio.load(response.data);
@@ -46,16 +62,25 @@ app.get('/api/lux-prices', async (req, res) => {
         });
         
         if (Object.keys(prices).length === 0) throw new Error("Site vide");
+        
+        // Sauvegarde dans le cache
+        cache.lux = { data: prices, time: Date.now() };
         res.json(prices);
     } catch (e) { 
         console.error("Alerte Lux : Site injoignable, utilisation des prix de secours.");
-        res.json(fallbackPrices); // On renvoie un succès avec les prix de secours au lieu d'une erreur 500
+        res.json(fallbackPrices);
     }
 });
 
 // --- PRIX BELGIQUE ---
 app.get('/api/belgium-prices', async (req, res) => {
     let fallbackPrices = { Diesel: 1.75, SP95: 1.70, E10: 1.70, SP98: 1.85 };
+    
+    if (cache.bel.data && (Date.now() - cache.bel.time < CACHE_DURATION_GLOBAL)) {
+        console.log("BE : Servi depuis le cache !");
+        return res.json(cache.bel.data);
+    }
+
     try {
         const response = await axios.get('https://www.energiafed.be/fr/prix-maximums', axiosConfig);
         const $ = cheerio.load(response.data);
@@ -69,9 +94,10 @@ app.get('/api/belgium-prices', async (req, res) => {
         });
         
         if (Object.keys(prices).length === 0) throw new Error("Site vide");
+        
+        cache.bel = { data: prices, time: Date.now() };
         res.json(prices);
     } catch (e) { 
-        console.error("Alerte BE : Site injoignable, utilisation des prix de secours.");
         res.json(fallbackPrices); 
     }
 });
@@ -80,9 +106,15 @@ app.get('/api/belgium-prices', async (req, res) => {
 app.get('/api/france-proxy', async (req, res) => {
     try {
         const { lat, lng } = req.query;
-        const url = 'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records';
+        // Création d'une clé de cache (ex: "49.45_6.15")
+        const cacheKey = `${parseFloat(lat).toFixed(2)}_${parseFloat(lng).toFixed(2)}`;
         
-        // On laisse Axios gérer l'encodage complexe de la syntaxe Opendatasoft
+        if (cache.france[cacheKey] && (Date.now() - cache.france[cacheKey].time < CACHE_DURATION_GEO)) {
+            console.log(`FRANCE : Cache utilisé pour la zone ${cacheKey}`);
+            return res.json(cache.france[cacheKey].data);
+        }
+
+        const url = 'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records';
         const response = await axios.get(url, {
             ...axiosConfig,
             params: {
@@ -91,10 +123,9 @@ app.get('/api/france-proxy', async (req, res) => {
             }
         });
         
+        cache.france[cacheKey] = { data: response.data, time: Date.now() };
         res.json(response.data);
     } catch (error) {
-        // En cas de nouvelle erreur, le log affichera le message exact de l'API France
-        console.error("Erreur API France :", error.response?.data || error.message);
         res.status(500).json({ error: "L'API France est inaccessible" });
     }
 });
@@ -103,16 +134,23 @@ app.get('/api/france-proxy', async (req, res) => {
 app.get('/api/germany-proxy', async (req, res) => {
     try {
         const { lat, lng } = req.query;
+        const cacheKey = `${parseFloat(lat).toFixed(2)}_${parseFloat(lng).toFixed(2)}`;
+        
+        if (cache.germany[cacheKey] && (Date.now() - cache.germany[cacheKey].time < CACHE_DURATION_GEO)) {
+            console.log(`ALLEMAGNE : Cache utilisé pour la zone ${cacheKey}`);
+            return res.json(cache.germany[cacheKey].data);
+        }
+
         const url = `https://creativecommons.tankerkoenig.de/json/list.php?lat=${lat}&lng=${lng}&rad=25&sort=dist&type=all&apikey=bbe071ee-7196-4c1e-b471-8c7934596447`;
         
-        // C'EST ICI QU'ON ENLÈVE LE ", axiosConfig"
-        const response = await axios.get(url); 
+        // Attention: Pas de axiosConfig ici pour ne pas se faire bloquer
+        const response = await axios.get(url);
         
+        cache.germany[cacheKey] = { data: response.data, time: Date.now() };
         res.json(response.data);
     } catch (error) {
-        // Ajoutons le vrai message d'erreur pour savoir exactement ce qui cloche si ça recommence
-        console.error("Erreur API Allemagne :", error.response?.data || error.message);
         res.status(500).json({ error: "L'API Allemagne est inaccessible" });
     }
 });
+
 app.listen(PORT, () => console.log(`Serveur prêt sur le port ${PORT}`));
