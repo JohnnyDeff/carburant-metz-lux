@@ -43,17 +43,16 @@ const CACHE_DURATION_GEO = 10 * 60 * 1000; // 10 minutes pour FR/DE
 async function fetchNationalPricesBackground() {
     console.log("🔄 Lancement de la mise à jour des prix nationaux...");
     
-    // --- LUXEMBOURG (Nouvelle source : Carbu.com via Proxy) ---
+    // --- LUXEMBOURG (Retour sur RTL.lu avec Regex Indestructible) ---
     try {
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://carbu.com/luxembourg/index.php/prixmaximum')}`;
-        const res = await axios.get(proxyUrl);
-        const html = res.data.contents; // Le HTML complet de la page
+        const res = await axios.get('https://www.rtl.lu/mobiliteit/petrolspraisser', axiosConfig);
+        const html = res.data;
         let newLux = {};
         
-        // Regex blindée : "Cherche le nom, ignore tout (y compris les sauts de ligne) sur 150 caractères max, et trouve un chiffre comme 1.543"
-        const matchDiesel = html.match(/Diesel[\s\S]{0,150}?([1-2][\.,]\d{2,3})/i);
-        const match95 = html.match(/Super 95[\s\S]{0,150}?([1-2][\.,]\d{2,3})/i);
-        const match98 = html.match(/Super 98[\s\S]{0,150}?([1-2][\.,]\d{2,3})/i);
+        // La Regex ultime : Saute les balises HTML/Sauts de ligne et exige 3 décimales exactes (pour éviter de capturer une date comme 2026)
+        const matchDiesel = html.match(/Diesel[\s\S]{0,150}?([1-2][.,]\d{3})/i);
+        const match95 = html.match(/95[\s\S]{0,150}?([1-2][.,]\d{3})/i);
+        const match98 = html.match(/98[\s\S]{0,150}?([1-2][.,]\d{3})/i);
 
         if (matchDiesel) newLux.Diesel = parseFloat(matchDiesel[1].replace(',', '.'));
         if (match95) { newLux.SP95 = parseFloat(match95[1].replace(',', '.')); newLux.E10 = newLux.SP95; }
@@ -61,12 +60,12 @@ async function fetchNationalPricesBackground() {
 
         if (Object.keys(newLux).length > 0) {
             memoryPrices.lux = newLux;
-            console.log("✅ LUX mis à jour via Carbu.com :", newLux);
+            console.log("✅ LUX mis à jour via RTL :", newLux);
         } else {
-            console.log("⚠️ Prix non trouvés dans le texte de Carbu.com.");
+            console.log("⚠️ Prix non trouvés dans le texte RTL.");
         }
     } catch (e) {
-        console.log("⚠️ Échec LUX (Carbu.com), conservation de la mémoire.");
+        console.log("⚠️ Échec LUX (RTL), conservation de la mémoire.");
     }
 
     // --- BELGIQUE (On garde AllOrigins qui fonctionnait) ---
