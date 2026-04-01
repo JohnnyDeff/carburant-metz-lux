@@ -103,15 +103,16 @@ app.get('/api/france-proxy', async (req, res) => {
 app.get('/api/germany-proxy', async (req, res) => {
     try {
         const { lat, lng } = req.query;
-        // On limite à 25km car c'est le maximum autorisé par Tankerkönig
         const url = `https://creativecommons.tankerkoenig.de/json/list.php?lat=${lat}&lng=${lng}&rad=25&sort=dist&type=all&apikey=bbe071ee-7196-4c1e-b471-8c7934596447`;
         
-        const response = await axios.get(url, axiosConfig);
+        // C'EST ICI QU'ON ENLÈVE LE ", axiosConfig"
+        const response = await axios.get(url); 
+        
         res.json(response.data);
     } catch (error) {
-        console.error("Erreur API Allemagne :", error.message);
+        // Ajoutons le vrai message d'erreur pour savoir exactement ce qui cloche si ça recommence
+        console.error("Erreur API Allemagne :", error.response?.data || error.message);
         res.status(500).json({ error: "L'API Allemagne est inaccessible" });
     }
 });
-
 app.listen(PORT, () => console.log(`Serveur prêt sur le port ${PORT}`));
