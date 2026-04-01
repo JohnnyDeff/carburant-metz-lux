@@ -1,11 +1,10 @@
 // --- CONFIGURATION ---
-const TOMTOM_KEY = 'CRDxsSiKnAMIpuYJQf3MNs78q25zKLBJ'; // <--- TA CLÉ ICI
+const TOMTOM_KEY = 'CRDxsSiKnAMIpuYJQf3MNs78q25zKLBJ'; //
 
 // --- VARIABLES GLOBALES ---
-let map, tileLayer, userMarker;
+let map, tileLayer, userMarker, markersGroup; // <-- markersGroup ajouté ici
 let isDarkMode = true;
 let stationsList = [];
-let markers = [];
 let selectedFuel = 'Diesel';
 let mapTimeout;
 
@@ -15,7 +14,13 @@ document.addEventListener('DOMContentLoaded', () => {
     map = L.map('map').setView([49.45, 6.15], 10);
     tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
 
-    // 2. Gestion du Spam (Debounce)
+    // 2. Initialisation du groupe de Clusters (Regroupement)
+    markersGroup = L.markerClusterGroup({
+        disableClusteringAtZoom: 14 // Les clusters éclatent si on zoome très près
+    });
+    map.addLayer(markersGroup);
+
+    // 3. Gestion du Spam (Debounce)
     map.on('moveend', () => {
         clearTimeout(mapTimeout);
         mapTimeout = setTimeout(() => {
@@ -24,7 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 1000);
     });
 
-    // 3. Géolocalisation (CORRIGÉ : C'est maintenant à l'intérieur de l'initialisation)
+    // 4. Géolocalisation
     map.on('locationfound', function(e) {
         if (userMarker) map.removeLayer(userMarker);
         userMarker = L.circleMarker(e.latlng, {
@@ -34,12 +39,12 @@ document.addEventListener('DOMContentLoaded', () => {
         loadData(e.latlng.lat, e.latlng.lng);
     });
 
-    // 4. Premier chargement au démarrage
+    // 5. Premier chargement au démarrage
     loadData(49.45, 6.15);
 });
 
 // --- ACTIONS DES BOUTONS ---
-function toggleTheme() {
+window.toggleTheme = function() {
     isDarkMode = !isDarkMode;
     document.body.classList.toggle('light-mode', !isDarkMode);
     
@@ -51,25 +56,25 @@ function toggleTheme() {
         btn.innerHTML = '🌙 Thème Sombre';
         tileLayer.setUrl('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png');
     }
-}
+};
 
-function locateUser() { 
+window.locateUser = function() { 
     map.locate({setView: true, maxZoom: 13}); 
-}
+};
 
-function filterFuel(fuel) {
+window.filterFuel = function(fuel) {
     selectedFuel = fuel;
     document.querySelectorAll('.pill').forEach(btn => btn.classList.remove('active'));
     document.getElementById(`btn-${fuel}`).classList.add('active');
     updateDisplay();
-}
+};
 
 // --- LOGIQUE MÉTIER ---
 async function loadData(lat, lng) {
     document.getElementById('stations-list').innerHTML = '<div style="padding:15px; text-align:center;">Recherche en cours... ⏳</div>';
     stationsList = [];
 
-    // 1. LU et BE (Désormais instantané grâce au backend en arrière-plan)
+    // 1. LU et BE
     try {
         const [luxRes, beRes] = await Promise.all([
             fetch('/api/lux-prices'),
@@ -160,13 +165,13 @@ async function loadData(lat, lng) {
         }
     } catch (e) { console.error("Erreur Allemagne:", e); }
 
-    updateDisplay();
+    window.updateDisplay();
 }
 
 // --- AFFICHAGE ---
-function updateDisplay() {
-    markers.forEach(m => map.removeLayer(m));
-    markers = [];
+window.updateDisplay = function() {
+    // Nettoie tous les clusters d'un seul coup (beaucoup plus propre !)
+    markersGroup.clearLayers();
     
     const listContainer = document.getElementById('stations-list');
     listContainer.innerHTML = '';
@@ -188,14 +193,19 @@ function updateDisplay() {
         const priceVal = s.prices[selectedFuel];
         const priceText = typeof priceVal === 'number' ? priceVal.toFixed(3) + ' €' : priceVal;
 
+        // Création du marqueur et ajout DANS LE CLUSTER
         const marker = L.marker([s.lat, s.lon]).bindPopup(`<b>${s.icons} ${s.name}</b><br>${selectedFuel}: <b>${priceText}</b>`);
-        marker.addTo(map);
-        markers.push(marker);
+        markersGroup.addLayer(marker);
 
         const div = document.createElement('div');
         div.className = 'station-item';
         div.innerHTML = `<strong>${s.icons} ${s.name}</strong><br><small>${selectedFuel}: <b style="color: ${typeof priceVal === 'number' ? 'inherit' : '#8b5cf6'}">${priceText}</b></small>`;
-        div.onclick = () => { map.setView([s.lat, s.lon], 14); marker.openPopup(); };
+        
+        div.onclick = () => { 
+            // On zoome sur le cluster pour l'éclater
+            map.setView([s.lat, s.lon], 15); 
+            marker.openPopup(); 
+        };
         listContainer.appendChild(div);
     });
-}
+};
