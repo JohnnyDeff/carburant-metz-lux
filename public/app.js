@@ -163,21 +163,21 @@ map.on('locationfound', function(e) {
     loadData(e.latlng.lat, e.latlng.lng);
 });
 
-function locateUser() { 
+window.locateUser = function() { 
     map.locate({setView: true, maxZoom: 13}); 
-}
+};
 
 // --- MODE CLAIR / SOMBRE ---
-function toggleTheme() {
+window.toggleTheme = function() {
     isDarkMode = !isDarkMode;
     document.body.classList.toggle('light-mode', !isDarkMode);
     
     const newUrl = isDarkMode 
         ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-        : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+        : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'; // 'voyager' est plus joli et lisible que 'light_all'
     
     tileLayer.setUrl(newUrl);
-}
+};
 
 // Lancement initial
 loadData();
