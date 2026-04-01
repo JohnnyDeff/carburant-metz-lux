@@ -4,14 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://unpkg.com https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com https://api.tomtom.com; script-src 'self' 'unsafe-inline' 'unsafe-hashes' https://unpkg.com; img-src 'self' data: https://unpkg.com https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; style-src 'self' 'unsafe-inline' https://unpkg.com;">
+    
     <title>Carburants Frontaliers & Élec</title>
     
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⛽</text></svg>">
+    
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+    
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
-        
         <div id="sidebar">
             <div class="controls-header">
                 <button class="btn-action" onclick="locateUser()">📍 Autour de moi</button>
@@ -33,10 +38,10 @@
         </div>
 
         <div id="map"></div>
-        
     </div>
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
