@@ -43,16 +43,24 @@ const CACHE_DURATION_GEO = 10 * 60 * 1000; // 10 minutes pour FR/DE
 async function fetchNationalPricesBackground() {
     console.log("🔄 Lancement de la mise à jour des prix nationaux...");
     
-    // --- LUXEMBOURG (Retour sur RTL.lu avec Regex Indestructible) ---
+  // --- LUXEMBOURG (Méthode Bulldozer sur RTL anglophone) ---
     try {
-        const res = await axios.get('https://www.rtl.lu/mobiliteit/petrolspraisser', axiosConfig);
-        const html = res.data;
+        // L'édition anglaise a une structure très claire
+        const res = await axios.get('https://today.rtl.lu/mobility/fuel-prices', axiosConfig);
+        
+        // On donne la page à Cheerio
+        const $ = cheerio.load(res.data);
+        
+        // LA MAGIE : On prend tout le texte visible de la page, et on écrase les espaces/sauts de ligne
+        const texteBrut = $('body').text().replace(/\s+/g, ' '); 
+        // Le texte devient : "... EuroSuper 95 (E10) 1.700 €/l SuperPlus 98 (E5) 1.814 €/l Diesel (B7) 2.005 €/l ..."
+        
         let newLux = {};
         
-        // La Regex ultime : Saute les balises HTML/Sauts de ligne et exige 3 décimales exactes (pour éviter de capturer une date comme 2026)
-        const matchDiesel = html.match(/Diesel[\s\S]{0,150}?([1-2][.,]\d{3})/i);
-        const match95 = html.match(/95[\s\S]{0,150}?([1-2][.,]\d{3})/i);
-        const match98 = html.match(/98[\s\S]{0,150}?([1-2][.,]\d{3})/i);
+        // On cherche le mot, on ignore un peu de texte, et on prend le chiffre (avec 1 à 3 décimales)
+        const matchDiesel = texteBrut.match(/Diesel.*?([0-9][.,][0-9]{1,3})/i);
+        const match95 = texteBrut.match(/95.*?([0-9][.,][0-9]{1,3})/i);
+        const match98 = texteBrut.match(/98.*?([0-9][.,][0-9]{1,3})/i);
 
         if (matchDiesel) newLux.Diesel = parseFloat(matchDiesel[1].replace(',', '.'));
         if (match95) { newLux.SP95 = parseFloat(match95[1].replace(',', '.')); newLux.E10 = newLux.SP95; }
@@ -60,12 +68,13 @@ async function fetchNationalPricesBackground() {
 
         if (Object.keys(newLux).length > 0) {
             memoryPrices.lux = newLux;
-            console.log("✅ LUX mis à jour via RTL :", newLux);
+            console.log("✅ LUX mis à jour via RTL (Bulldozer) :", newLux);
         } else {
-            console.log("⚠️ Prix non trouvés dans le texte RTL.");
+            // Si ça échoue, on affiche ce que le serveur a "lu" pour comprendre immédiatement l'erreur !
+            console.log("⚠️ Prix non trouvés. Voici ce que le robot a lu :", texteBrut.substring(0, 200));
         }
     } catch (e) {
-        console.log("⚠️ Échec LUX (RTL), conservation de la mémoire.");
+        console.log("⚠️ Échec LUX (RTL Bulldozer), conservation de la mémoire.");
     }
 
     // --- BELGIQUE (On garde AllOrigins qui fonctionnait) ---
