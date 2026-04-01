@@ -41,52 +41,52 @@ const CACHE_DURATION_GEO = 10 * 60 * 1000; // 10 minutes pour FR/DE
 
 // --- LE TRAVAILLEUR DE L'OMBRE (Tâches en arrière-plan) ---
 async function fetchNationalPricesBackground() {
-    console.log("🔄 Lancement de la mise à jour des prix nationaux via Proxy AllOrigins...");
+    console.log("🔄 Lancement de la mise à jour des prix nationaux...");
     
-    // La fonction magique qui contourne les pare-feux anti-bots
-    async function fetchWithProxy(targetUrl) {
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
-        const res = await axios.get(proxyUrl);
-        return res.data.contents; // Le HTML du site est caché ici
-    }
-
-    // Tente de mettre à jour le Luxembourg
+    // --- LUXEMBOURG (Nouvelle source : RTL.lu) ---
     try {
-        const html = await fetchWithProxy('https://familiale.lu/petrol-prices');
-        const $ = cheerio.load(html);
+        // On interroge directement RTL, qui est beaucoup moins strict
+        const res = await axios.get('https://www.rtl.lu/mobiliteit/petrolspraisser', axiosConfig);
+        const html = res.data;
         let newLux = {};
-        $('.price-item').each((i, el) => {
-            const name = $(el).find('.fuel-name').text().trim();
-            const price = parseFloat($(el).find('.fuel-price').text().replace(',', '.'));
-            if (name.includes('Gazole') || name.includes('Diesel')) newLux.Diesel = price;
-            if (name.includes('95')) newLux.SP95 = newLux.E10 = price;
-            if (name.includes('98')) newLux.SP98 = price;
-        });
         
+        // Formules magiques (Regex) qui trouvent le prix peu importe le code HTML autour
+        const matchDiesel = html.match(/Diesel.*?([0-9][\.,]\d{2,3})/i);
+        const match95 = html.match(/EuroSuper 95.*?([0-9][\.,]\d{2,3})/i);
+        const match98 = html.match(/SuperPlus 98.*?([0-9][\.,]\d{2,3})/i);
+
+        if (matchDiesel) newLux.Diesel = parseFloat(matchDiesel[1].replace(',', '.'));
+        if (match95) { newLux.SP95 = parseFloat(match95[1].replace(',', '.')); newLux.E10 = newLux.SP95; }
+        if (match98) newLux.SP98 = parseFloat(match98[1].replace(',', '.'));
+
         if (Object.keys(newLux).length > 0) {
             memoryPrices.lux = newLux;
-            console.log("✅ LUX mis à jour avec succès :", newLux);
+            console.log("✅ LUX mis à jour via RTL :", newLux);
+        } else {
+            console.log("⚠️ Prix non trouvés dans le texte RTL.");
         }
     } catch (e) {
-        console.log("⚠️ Échec LUX via proxy, conservation de la mémoire.");
+        console.log("⚠️ Échec LUX (RTL), conservation de la mémoire.");
     }
 
-    // Tente de mettre à jour la Belgique
+    // --- BELGIQUE (On garde AllOrigins qui fonctionnait) ---
     try {
-        const html = await fetchWithProxy('https://www.energiafed.be/fr/prix-maximums');
-        const $ = cheerio.load(html);
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://www.energiafed.be/fr/prix-maximums')}`;
+        const res = await axios.get(proxyUrl);
+        const $ = cheerio.load(res.data.contents);
         let newBel = {};
+        
         $('table tr').each((i, el) => {
-            const text = $(el).text().toLowerCase();
+            const textEl = $(el).text().toLowerCase();
             const val = parseFloat($(el).find('td').eq(1).text().replace(',', '.'));
-            if (text.includes('diesel') && !isNaN(val)) newBel.Diesel = val;
-            if (text.includes('95') && !isNaN(val)) { newBel.SP95 = val; newBel.E10 = val; }
-            if (text.includes('98') && !isNaN(val)) newBel.SP98 = val;
+            if (textEl.includes('diesel') && !isNaN(val)) newBel.Diesel = val;
+            if (textEl.includes('95') && !isNaN(val)) { newBel.SP95 = val; newBel.E10 = val; }
+            if (textEl.includes('98') && !isNaN(val)) newBel.SP98 = val;
         });
         
         if (Object.keys(newBel).length > 0) {
             memoryPrices.bel = newBel;
-            console.log("✅ BEL mis à jour avec succès :", newBel);
+            console.log("✅ BEL mis à jour via Proxy :", newBel);
         }
     } catch (e) {
         console.log("⚠️ Échec BEL via proxy, conservation de la mémoire.");
