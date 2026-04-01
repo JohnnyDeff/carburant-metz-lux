@@ -9,10 +9,13 @@ let bePrices = { Diesel: 1.75, SP95: 1.70, E10: 1.70, SP98: 1.85, GPL: 0.80, E85
 let activeFuel = 'Diesel';
 let stationsList = [];
 let searchTimer;
+let isDarkMode = true;
+let tileLayer;
+let userMarker; // Pour la géolocalisation
 
 // ── INITIALISATION CARTE ──
 const map = L.map('map').setView([49.45, 6.15], 10); 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
 const markerCluster = L.markerClusterGroup({ chunkedLoading: true });
 
 // ── INTERACTIVITÉ ──
@@ -45,7 +48,7 @@ async function loadData(lat = 49.45, lng = 6.15) {
 
     stationsList = [];
 
-    // 2. FRANCE (Via ton Proxy)
+    // 1. FRANCE (Via ton Proxy)
     try {
         const frRes = await fetch(`${API_FR_PROXY}?lat=${lat}&lng=${lng}`);
         const frData = await frRes.json();
@@ -67,6 +70,26 @@ async function loadData(lat = 49.45, lng = 6.15) {
         }
     } catch (e) { console.error("Erreur France via Proxy:", e); }
 
+// 2. ALLEMAGNE (Tankerkönig)
+    try {
+        const deRes = await fetch(`/api/germany-proxy?lat=${lat}&lng=${lng}`);
+        const deData = await deRes.json();
+        
+        if (deData.ok && deData.stations) {
+            deData.stations.forEach(s => {
+                if (s.isOpen) { // On ne prend que les stations ouvertes
+                    stationsList.push({
+                        name: s.name || s.brand || "Station DE",
+                        lat: s.lat, lon: s.lng, country: 'DE',
+                        icons: '🇩🇪',
+                        prices: { Diesel: s.diesel, SP95: s.e5, E10: s.e10 },
+                        ruptures: {}
+                    });
+                }
+            });
+        }
+    } catch (e) { console.error("Erreur Allemagne:", e); }
+    
     // 3. TOMTOM (LUX & BE)
     try {
         const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=${lat}&lon=${lng}&radius=50000&limit=100&countrySet=LU,BE`);
@@ -128,6 +151,33 @@ function setFuel(btn, fuel) {
 }
 
 function locateUser() { map.locate({setView: true, maxZoom: 13}); }
+
+// --- GÉOLOCALISATION (Le point bleu) ---
+map.on('locationfound', function(e) {
+    if (userMarker) map.removeLayer(userMarker);
+    
+    userMarker = L.circleMarker(e.latlng, {
+        radius: 8, fillColor: "#3b82f6", color: "#ffffff", weight: 2, fillOpacity: 1
+    }).addTo(map).bindPopup("📍 Vous êtes ici !").openPopup();
+    
+    loadData(e.latlng.lat, e.latlng.lng);
+});
+
+function locateUser() { 
+    map.locate({setView: true, maxZoom: 13}); 
+}
+
+// --- MODE CLAIR / SOMBRE ---
+function toggleTheme() {
+    isDarkMode = !isDarkMode;
+    document.body.classList.toggle('light-mode', !isDarkMode);
+    
+    const newUrl = isDarkMode 
+        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+        : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+    
+    tileLayer.setUrl(newUrl);
+}
 
 // Lancement initial
 loadData();
