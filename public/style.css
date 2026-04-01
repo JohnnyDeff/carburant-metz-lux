@@ -224,3 +224,46 @@ body {
         padding: 15px;
     }
 }
+/* --- RESPONSIVE MOBILE --- */
+@media (max-width: 768px) {
+    /* Si ton conteneur principal s'appelle .container ou #main, ajuste le nom */
+    .container { 
+        flex-direction: column; 
+    }
+    #map {
+        height: 65vh; /* La carte prend 65% de l'écran */
+        width: 100%;
+    }
+    #sidebar {
+        height: 35vh; /* La liste prend 35% de l'écran */
+        width: 100%;
+        overflow-y: auto;
+    }
+}
+
+/* --- BOUTONS CARBURANT INCASSABLES --- */
+.fuel-filters {
+    display: flex;
+    flex-wrap: wrap; /* Permet aux boutons de passer à la ligne s'il n'y a plus de place */
+    gap: 8px;
+    padding: 10px;
+}
+.pill {
+    flex: 1 1 auto; /* Ils grandissent et rétrécissent intelligemment... */
+    min-width: 65px; /* ...mais ne seront jamais plus petits que ça ! */
+    text-align: center;
+}
+
+/* --- MODE CLAIR --- */
+body.light-mode {
+    background-color: #f3f4f6;
+    color: #111827;
+}
+body.light-mode .station-item {
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
+    color: #111827;
+}
+body.light-mode .station-item small {
+    color: #6b7280;
+}
