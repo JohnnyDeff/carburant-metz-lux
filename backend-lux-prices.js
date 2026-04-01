@@ -43,31 +43,43 @@ const CACHE_DURATION_GEO = 10 * 60 * 1000; // 10 minutes pour FR/DE
 async function fetchNationalPricesBackground() {
     console.log("🔄 Lancement de la mise à jour des prix nationaux...");
     
- // --- LUXEMBOURG (Lecture dans la matrice Next.js de RTL) ---
+ // --- LUXEMBOURG (Infiltration AllOrigins + Code HTML validé) ---
     try {
-        const res = await axios.get('https://today.rtl.lu/mobility/fuel-prices', axiosConfig);
-        const html = res.data; // Le code source brut, incluant les scripts invisibles
+        // On passe par AllOrigins pour contourner le videur à l'entrée
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://today.rtl.lu/mobility/fuel-prices')}`;
+        const res = await axios.get(proxyUrl);
         
+        // AllOrigins met le code HTML dans 'contents'
+        const $ = cheerio.load(res.data.contents);
         let newLux = {};
         
-        // La Regex absolue : Cherche le mot, ignore jusqu'à 60 caractères (accolades, guillemets, balises HTML),
-        // et capture le chiffre qui commence par 1 ou 2, avec STRICTEMENT 3 décimales (ex: 2.057).
-        const matchDiesel = html.match(/diesel[\s\S]{0,60}?([1-2][.,]\d{3})/i);
-        const match95 = html.match(/95[\s\S]{0,60}?([1-2][.,]\d{3})/i);
-        const match98 = html.match(/98[\s\S]{0,60}?([1-2][.,]\d{3})/i);
-
-        if (matchDiesel) newLux.Diesel = parseFloat(matchDiesel[1].replace(',', '.'));
-        if (match95) { newLux.SP95 = parseFloat(match95[1].replace(',', '.')); newLux.E10 = newLux.SP95; }
-        if (match98) newLux.SP98 = parseFloat(match98[1].replace(',', '.'));
+        // On utilise la structure exacte que tu as trouvée !
+        $('table tr').each((i, el) => {
+            const label = $(el).find('td').eq(0).text().toLowerCase();
+            const valueText = $(el).find('td').eq(1).text();
+            
+            if (label && valueText) {
+                // On attrape le chiffre exact (ex: "2.057")
+                const priceMatch = valueText.match(/([0-9][.,][0-9]{3})/);
+                
+                if (priceMatch) {
+                    const price = parseFloat(priceMatch[1].replace(',', '.'));
+                    
+                    if (label.includes('diesel')) newLux.Diesel = price;
+                    if (label.includes('95')) { newLux.SP95 = price; newLux.E10 = price; }
+                    if (label.includes('98')) newLux.SP98 = price;
+                }
+            }
+        });
 
         if (Object.keys(newLux).length > 0) {
             memoryPrices.lux = newLux;
-            console.log("✅ LUX mis à jour depuis la matrice RTL :", newLux);
+            console.log("✅ LUX mis à jour via RTL (Infiltration réussie) :", newLux);
         } else {
-            console.log("⚠️ Prix introuvables dans le code source brut.");
+            console.log("⚠️ Pare-feu toujours actif, le tableau est introuvable par le proxy.");
         }
     } catch (e) {
-        console.log("⚠️ Échec LUX, conservation de la mémoire.");
+        console.log("⚠️ Échec de connexion au Proxy AllOrigins pour le LUX.");
     }
 
     // --- BELGIQUE (On garde AllOrigins qui fonctionnait) ---
