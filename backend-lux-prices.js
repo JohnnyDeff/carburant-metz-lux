@@ -29,128 +29,101 @@ const axiosConfig = {
     }
 };
 
-// --- LE SYSTÈME DE CACHE ---
-const cache = {
-    lux: { data: null, time: 0 },
-    bel: { data: null, time: 0 },
-    france: {},  // Va stocker par zone géographique
-    germany: {}  // Va stocker par zone géographique
+// --- MÉMOIRE VIVE DU SERVEUR ---
+// Ces prix servent de base ultra-rapide. Ils sont mis à jour en arrière-plan.
+let memoryPrices = {
+    lux: { Diesel: 1.54, SP95: 1.63, E10: 1.63, SP98: 1.86 },
+    bel: { Diesel: 1.77, SP95: 1.72, E10: 1.72, SP98: 1.91 }
 };
-const CACHE_DURATION_GLOBAL = 30 * 60 * 1000; // 30 minutes pour LU/BE (les prix changent 1x par jour)
-const CACHE_DURATION_GEO = 10 * 60 * 1000;    // 10 minutes pour FR/DE (évite le spam quand on bouge la carte)
 
-// --- PRIX LUXEMBOURG ---
-app.get('/api/lux-prices', async (req, res) => {
-    let fallbackPrices = { Diesel: 1.55, SP95: 1.65, E10: 1.62, SP98: 1.78 };
+const cache = { france: {}, germany: {} };
+const CACHE_DURATION_GEO = 10 * 60 * 1000; // 10 minutes pour FR/DE
+
+// --- LE TRAVAILLEUR DE L'OMBRE (Tâches en arrière-plan) ---
+async function fetchNationalPricesBackground() {
+    console.log("🔄 Lancement de la mise à jour des prix nationaux en arrière-plan...");
     
-    // Vérification du cache
-    if (cache.lux.data && (Date.now() - cache.lux.time < CACHE_DURATION_GLOBAL)) {
-        console.log("LUX : Servi depuis le cache !");
-        return res.json(cache.lux.data);
-    }
-
+    // Tente de mettre à jour le Luxembourg
     try {
-        const response = await axios.get('https://familiale.lu/petrol-prices', axiosConfig);
-        const $ = cheerio.load(response.data);
-        let prices = {};
+        const res = await axios.get('https://familiale.lu/petrol-prices', axiosConfig);
+        const $ = cheerio.load(res.data);
+        let newLux = {};
         $('.price-item').each((i, el) => {
             const name = $(el).find('.fuel-name').text().trim();
             const price = parseFloat($(el).find('.fuel-price').text().replace(',', '.'));
-            if (name.includes('Gazole') || name.includes('Diesel')) prices.Diesel = price;
-            if (name.includes('95')) prices.SP95 = prices.E10 = price;
-            if (name.includes('98')) prices.SP98 = price;
+            if (name.includes('Gazole') || name.includes('Diesel')) newLux.Diesel = price;
+            if (name.includes('95')) newLux.SP95 = newLux.E10 = price;
+            if (name.includes('98')) newLux.SP98 = price;
         });
-        
-        if (Object.keys(prices).length === 0) throw new Error("Site vide");
-        
-        // Sauvegarde dans le cache
-        cache.lux = { data: prices, time: Date.now() };
-        res.json(prices);
-    } catch (e) { 
-        console.error("Alerte Lux : Site injoignable, utilisation des prix de secours.");
-        res.json(fallbackPrices);
-    }
-});
-
-// --- PRIX BELGIQUE ---
-app.get('/api/belgium-prices', async (req, res) => {
-    let fallbackPrices = { Diesel: 1.75, SP95: 1.70, E10: 1.70, SP98: 1.85 };
-    
-    if (cache.bel.data && (Date.now() - cache.bel.time < CACHE_DURATION_GLOBAL)) {
-        console.log("BE : Servi depuis le cache !");
-        return res.json(cache.bel.data);
+        if (Object.keys(newLux).length > 0) memoryPrices.lux = newLux;
+    } catch (e) {
+        console.log("⚠️ Scraper LUX injoignable, conservation des prix en mémoire.");
     }
 
+    // Tente de mettre à jour la Belgique
     try {
-        const response = await axios.get('https://www.energiafed.be/fr/prix-maximums', axiosConfig);
-        const $ = cheerio.load(response.data);
-        let prices = {};
+        const res = await axios.get('https://www.energiafed.be/fr/prix-maximums', axiosConfig);
+        const $ = cheerio.load(res.data);
+        let newBel = {};
         $('table tr').each((i, el) => {
             const text = $(el).text().toLowerCase();
             const val = parseFloat($(el).find('td').eq(1).text().replace(',', '.'));
-            if (text.includes('diesel') && !isNaN(val)) prices.Diesel = val;
-            if (text.includes('95') && !isNaN(val)) { prices.SP95 = val; prices.E10 = val; }
-            if (text.includes('98') && !isNaN(val)) prices.SP98 = val;
+            if (text.includes('diesel') && !isNaN(val)) newBel.Diesel = val;
+            if (text.includes('95') && !isNaN(val)) { newBel.SP95 = val; newBel.E10 = val; }
+            if (text.includes('98') && !isNaN(val)) newBel.SP98 = val;
         });
-        
-        if (Object.keys(prices).length === 0) throw new Error("Site vide");
-        
-        cache.bel = { data: prices, time: Date.now() };
-        res.json(prices);
-    } catch (e) { 
-        res.json(fallbackPrices); 
+        if (Object.keys(newBel).length > 0) memoryPrices.bel = newBel;
+    } catch (e) {
+        console.log("⚠️ Scraper BEL injoignable, conservation des prix en mémoire.");
     }
-});
+}
 
-// --- PROXY FRANCE ---
+// 1. On lance le travailleur une première fois au démarrage du serveur
+fetchNationalPricesBackground();
+// 2. On lui dit de recommencer toutes les 6 heures (6h * 60m * 60s * 1000ms)
+setInterval(fetchNationalPricesBackground, 6 * 60 * 60 * 1000);
+
+// --- ROUTES API ULTRA-RAPIDES (Réponse en 0 milliseconde) ---
+app.get('/api/lux-prices', (req, res) => res.json(memoryPrices.lux));
+app.get('/api/belgium-prices', (req, res) => res.json(memoryPrices.bel));
+
+// --- PROXY FRANCE (Avec cache) ---
 app.get('/api/france-proxy', async (req, res) => {
     try {
         const { lat, lng } = req.query;
-        // Création d'une clé de cache (ex: "49.45_6.15")
         const cacheKey = `${parseFloat(lat).toFixed(2)}_${parseFloat(lng).toFixed(2)}`;
         
         if (cache.france[cacheKey] && (Date.now() - cache.france[cacheKey].time < CACHE_DURATION_GEO)) {
-            console.log(`FRANCE : Cache utilisé pour la zone ${cacheKey}`);
             return res.json(cache.france[cacheKey].data);
         }
 
         const url = 'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records';
         const response = await axios.get(url, {
             ...axiosConfig,
-            params: {
-                limit: 100,
-                where: `within_distance(geom, GEOM'POINT(${lng} ${lat})', 50km)`
-            }
+            params: { limit: 100, where: `within_distance(geom, GEOM'POINT(${lng} ${lat})', 50km)` }
         });
         
         cache.france[cacheKey] = { data: response.data, time: Date.now() };
         res.json(response.data);
-    } catch (error) {
-        res.status(500).json({ error: "L'API France est inaccessible" });
-    }
+    } catch (error) { res.status(500).json({ error: "L'API France est inaccessible" }); }
 });
 
-// --- PROXY ALLEMAGNE (Tankerkönig) ---
+// --- PROXY ALLEMAGNE (Avec cache) ---
 app.get('/api/germany-proxy', async (req, res) => {
     try {
         const { lat, lng } = req.query;
         const cacheKey = `${parseFloat(lat).toFixed(2)}_${parseFloat(lng).toFixed(2)}`;
         
         if (cache.germany[cacheKey] && (Date.now() - cache.germany[cacheKey].time < CACHE_DURATION_GEO)) {
-            console.log(`ALLEMAGNE : Cache utilisé pour la zone ${cacheKey}`);
             return res.json(cache.germany[cacheKey].data);
         }
 
         const url = `https://creativecommons.tankerkoenig.de/json/list.php?lat=${lat}&lng=${lng}&rad=25&sort=dist&type=all&apikey=bbe071ee-7196-4c1e-b471-8c7934596447`;
-        
-        // Attention: Pas de axiosConfig ici pour ne pas se faire bloquer
         const response = await axios.get(url);
         
         cache.germany[cacheKey] = { data: response.data, time: Date.now() };
         res.json(response.data);
-    } catch (error) {
-        res.status(500).json({ error: "L'API Allemagne est inaccessible" });
-    }
+    } catch (error) { res.status(500).json({ error: "L'API Allemagne est inaccessible" }); }
 });
 
 app.listen(PORT, () => console.log(`Serveur prêt sur le port ${PORT}`));
