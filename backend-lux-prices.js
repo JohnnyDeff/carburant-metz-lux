@@ -43,23 +43,22 @@ const CACHE_DURATION_GEO = 10 * 60 * 1000; // 10 minutes pour FR/DE
 async function fetchNationalPricesBackground() {
     console.log("🔄 Lancement de la mise à jour des prix nationaux...");
     
- // --- LUXEMBOURG (Infiltration AllOrigins + Code HTML validé) ---
+// --- LUXEMBOURG (Infiltration AllOrigins + Parsing exact Carbu.com) ---
     try {
-        // On passe par AllOrigins pour contourner le videur à l'entrée
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://today.rtl.lu/mobility/fuel-prices')}`;
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://carbu.com/luxembourg/index.php/prixmaximum')}`;
         const res = await axios.get(proxyUrl);
-        
-        // AllOrigins met le code HTML dans 'contents'
         const $ = cheerio.load(res.data.contents);
         let newLux = {};
         
-        // On utilise la structure exacte que tu as trouvée !
-        $('table tr').each((i, el) => {
-            const label = $(el).find('td').eq(0).text().toLowerCase();
-            const valueText = $(el).find('td').eq(1).text();
+        // On cherche toutes les lignes (tr) du tableau des prix
+        $('table.prix-officiel tbody tr').each((i, el) => {
+            // Le nom est dans la colonne avec la classe officialPriceBe_col1
+            const label = $(el).find('td.officialPriceBe_col1').text().toLowerCase();
+            // Le prix est dans la colonne avec la classe price
+            const valueText = $(el).find('td.price').text();
             
             if (label && valueText) {
-                // On attrape le chiffre exact (ex: "2.057")
+                // On extrait les chiffres (ex: "2,021 €/l" -> 2.021)
                 const priceMatch = valueText.match(/([0-9][.,][0-9]{3})/);
                 
                 if (priceMatch) {
@@ -74,12 +73,12 @@ async function fetchNationalPricesBackground() {
 
         if (Object.keys(newLux).length > 0) {
             memoryPrices.lux = newLux;
-            console.log("✅ LUX mis à jour via RTL (Infiltration réussie) :", newLux);
+            console.log("✅ LUX mis à jour via Carbu.com :", newLux);
         } else {
-            console.log("⚠️ Pare-feu toujours actif, le tableau est introuvable par le proxy.");
+            console.log("⚠️ Tableau carbu.com introuvable via le proxy.");
         }
     } catch (e) {
-        console.log("⚠️ Échec de connexion au Proxy AllOrigins pour le LUX.");
+        console.log("⚠️ Échec de connexion au Proxy AllOrigins pour carbu.com.");
     }
 
     // --- BELGIQUE (On garde AllOrigins qui fonctionnait) ---
