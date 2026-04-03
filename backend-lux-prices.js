@@ -43,14 +43,14 @@ const CACHE_DURATION_GEO = 10 * 60 * 1000; // 10 minutes pour FR/DE
 async function fetchNationalPricesBackground() {
     console.log("🔄 Lancement de la mise à jour des prix nationaux...");
     
-// --- LUXEMBOURG (petrol.lu avec calcul des tendances) ---
+// --- LUXEMBOURG (petrol.lu avec tendances corrigées) ---
     try {
         const res = await axios.get('https://www.petrol.lu/prix-officiels/', axiosConfig);
         const $ = cheerio.load(res.data);
         let tvacRows = [];
         
-        // On récupère toutes les lignes TTC (TVAC)
-        $('tbody tr').each((i, el) => {
+        // CORRECTION : On cible spécifiquement le tableau "historique" (.prices-table)
+        $('.prices-table tbody tr').each((i, el) => {
             const tds = $(el).find('td');
             if (tds.length >= 7 && tds.eq(6).text().trim().toUpperCase() === 'TVAC') {
                 tvacRows.push({
@@ -61,17 +61,13 @@ async function fetchNationalPricesBackground() {
             }
         });
 
-        // Si on a bien au moins les prix actuels et les anciens prix
+        // On compare la ligne 1 (aujourd'hui) avec la ligne 2 (dernier changement)
         if (tvacRows.length >= 2) {
-            const act = tvacRows[0]; // Prix actuels
-            const anc = tvacRows[1]; // Anciens prix
+            const act = tvacRows[0]; 
+            const anc = tvacRows[1]; 
 
             let newLux = {
-                Diesel: act.diesel, 
-                SP95: act.sp95, 
-                E10: act.sp95, 
-                SP98: act.sp98,
-                // On crée un dictionnaire des tendances
+                Diesel: act.diesel, SP95: act.sp95, E10: act.sp95, SP98: act.sp98,
                 trends: {
                     Diesel: act.diesel > anc.diesel ? 'hausse' : (act.diesel < anc.diesel ? 'baisse' : 'stable'),
                     SP95: act.sp95 > anc.sp95 ? 'hausse' : (act.sp95 < anc.sp95 ? 'baisse' : 'stable'),
@@ -79,12 +75,11 @@ async function fetchNationalPricesBackground() {
                 }
             };
             memoryPrices.lux = newLux;
-            console.log("✅ LUX mis à jour via Petrol.lu avec tendances :", newLux.trends);
+            console.log("✅ LUX avec tendances :", newLux.trends);
         }
     } catch (e) {
         console.log("⚠️ Échec LUX (Petrol.lu), conservation de la mémoire.");
     }
-
     // --- BELGIQUE (On garde AllOrigins qui fonctionnait) ---
     try {
         const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://www.energiafed.be/fr/prix-maximums')}`;
