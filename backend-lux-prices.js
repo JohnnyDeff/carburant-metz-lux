@@ -65,32 +65,47 @@ async function fetchNationalPricesBackground() {
         console.log("⚠️ Échec LUX (Petrol.lu), conservation de la mémoire.");
     }
 
-    // --- BELGIQUE (Via AllOrigins) ---
+// --- BELGIQUE (Via AllOrigins avec nouvelle structure Energia) ---
     try {
         const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://www.energiafed.be/fr/prix-maximums')}`;
         const res = await axios.get(proxyUrl);
         const $ = cheerio.load(res.data.contents);
         let newBel = {};
         
-        $('table tr').each((i, el) => {
-            const textEl = $(el).text().toLowerCase();
-            const val = parseFloat($(el).find('td').eq(1).text().replace(',', '.'));
-            if (textEl.includes('diesel') && !isNaN(val)) newBel.Diesel = val;
-            if (textEl.includes('95') && !isNaN(val)) { newBel.SP95 = val; newBel.E10 = val; }
-            if (textEl.includes('98') && !isNaN(val)) newBel.SP98 = val;
+        // On parcourt chaque "carte" de carburant sur le nouveau site
+        $('section.samenstelling-chart').each((i, el) => {
+            const title = $(el).find('h3.samenstelling-chart__title').text().trim().toLowerCase();
+            const priceText = $(el).find('.samenstelling-chart__price').text().trim(); // ex: "€/l 1.9010"
+            
+            // On attrape le chiffre exact (jusqu'à 4 décimales)
+            const match = priceText.match(/([0-9][.,][0-9]{2,4})/);
+            
+            if (match) {
+                const price = parseFloat(match[1].replace(',', '.'));
+                
+                // On cible exactement les bons noms du nouveau site
+                if (title === 'essence 95 ron - e10') {
+                    newBel.SP95 = price;
+                    newBel.E10 = price;
+                }
+                if (title === 'essence 98 ron - e5') {
+                    newBel.SP98 = price;
+                }
+                if (title === 'diesel') { // On évite "diesel - b10" ou "diesel - xtl"
+                    newBel.Diesel = price;
+                }
+            }
         });
         
         if (Object.keys(newBel).length > 0) {
             memoryPrices.bel = newBel;
-            console.log("✅ BEL mis à jour via Proxy.");
+            console.log("✅ BEL mis à jour via Proxy :", newBel);
+        } else {
+            console.log("⚠️ Prix belges introuvables avec la nouvelle structure.");
         }
     } catch (e) {
         console.log("⚠️ Échec BEL via proxy, conservation de la mémoire.");
     }
-}
-
-fetchNationalPricesBackground();
-setInterval(fetchNationalPricesBackground, 6 * 60 * 60 * 1000); // Toutes les 6 heures
 
 // --- ROUTES API ULTRA-RAPIDES ---
 app.get('/api/lux-prices', (req, res) => res.json(memoryPrices.lux));
