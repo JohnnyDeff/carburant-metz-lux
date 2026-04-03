@@ -1,17 +1,3 @@
-/**
- * backend-lux-prices.js — V3
- * ─────────────────────────────────────────────────────────────
- * Sources par ordre de priorité :
- *   1. data.public.lu  → dataset officiel "Prix des carburants"
- *   2. gouvernement.lu → communiqué mensuel (HTML scrape)
- *   3. Fallback statique (derniers prix connus, hardcodés)
- *
- * INSTALL : npm install express axios cheerio
- * START   : node backend-lux-prices.js
- * API     : GET /api/lux-prices
- * ─────────────────────────────────────────────────────────────
- */
-'use strict';
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
@@ -24,32 +10,30 @@ app.use(express.static('public'));
 
 const axiosConfig = {
     headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
     }
 };
 
 // --- MÉMOIRE VIVE DU SERVEUR ---
-// Ces prix servent de base ultra-rapide. Ils sont mis à jour en arrière-plan.
 let memoryPrices = {
-    lux: { Diesel: 1.54, SP95: 1.63, E10: 1.63, SP98: 1.86 },
+    lux: { Diesel: 1.54, SP95: 1.63, E10: 1.63, SP98: 1.86, trends: {} },
     bel: { Diesel: 1.77, SP95: 1.72, E10: 1.72, SP98: 1.91 }
 };
 
 const cache = { france: {}, germany: {} };
-const CACHE_DURATION_GEO = 10 * 60 * 1000; // 10 minutes pour FR/DE
+const CACHE_DURATION_GEO = 10 * 60 * 1000; // 10 minutes
 
 // --- LE TRAVAILLEUR DE L'OMBRE (Tâches en arrière-plan) ---
 async function fetchNationalPricesBackground() {
     console.log("🔄 Lancement de la mise à jour des prix nationaux...");
     
-// --- LUXEMBOURG (petrol.lu avec tendances corrigées) ---
+    // --- LUXEMBOURG (petrol.lu avec tendances) ---
     try {
         const res = await axios.get('https://www.petrol.lu/prix-officiels/', axiosConfig);
         const $ = cheerio.load(res.data);
         let tvacRows = [];
         
-        // CORRECTION : On cible spécifiquement le tableau "historique" (.prices-table)
         $('.prices-table tbody tr').each((i, el) => {
             const tds = $(el).find('td');
             if (tds.length >= 7 && tds.eq(6).text().trim().toUpperCase() === 'TVAC') {
@@ -61,7 +45,6 @@ async function fetchNationalPricesBackground() {
             }
         });
 
-        // On compare la ligne 1 (aujourd'hui) avec la ligne 2 (dernier changement)
         if (tvacRows.length >= 2) {
             const act = tvacRows[0]; 
             const anc = tvacRows[1]; 
@@ -80,7 +63,8 @@ async function fetchNationalPricesBackground() {
     } catch (e) {
         console.log("⚠️ Échec LUX (Petrol.lu), conservation de la mémoire.");
     }
-    // --- BELGIQUE (On garde AllOrigins qui fonctionnait) ---
+
+    // --- BELGIQUE (Via AllOrigins) ---
     try {
         const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://www.energiafed.be/fr/prix-maximums')}`;
         const res = await axios.get(proxyUrl);
@@ -97,19 +81,17 @@ async function fetchNationalPricesBackground() {
         
         if (Object.keys(newBel).length > 0) {
             memoryPrices.bel = newBel;
-            console.log("✅ BEL mis à jour via Proxy :", newBel);
+            console.log("✅ BEL mis à jour via Proxy.");
         }
     } catch (e) {
         console.log("⚠️ Échec BEL via proxy, conservation de la mémoire.");
     }
 }
 
-// 1. On lance le travailleur une première fois au démarrage du serveur
 fetchNationalPricesBackground();
-// 2. On lui dit de recommencer toutes les 6 heures (6h * 60m * 60s * 1000ms)
-setInterval(fetchNationalPricesBackground, 6 * 60 * 60 * 1000);
+setInterval(fetchNationalPricesBackground, 6 * 60 * 60 * 1000); // Toutes les 6 heures
 
-// --- ROUTES API ULTRA-RAPIDES (Réponse en 0 milliseconde) ---
+// --- ROUTES API ULTRA-RAPIDES ---
 app.get('/api/lux-prices', (req, res) => res.json(memoryPrices.lux));
 app.get('/api/belgium-prices', (req, res) => res.json(memoryPrices.bel));
 
