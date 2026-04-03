@@ -217,6 +217,40 @@ async function loadData(lat, lng) {
     window.updateDisplay();
 }
 
+// 6. Espagne
+    try {
+        const esRes = await fetch(`/api/spain-proxy?lat=${lat}&lng=${lng}`);
+        const esData = await esRes.json();
+        
+        esData.forEach(s => {
+            // Nettoyage des prix (on remplace la virgule et on gère les champs vides)
+            const getPrice = (str) => str ? parseFloat(str.replace(',', '.')) : null;
+            
+            const pDiesel = getPrice(s['Precio Gasoleo A']);
+            const p95 = getPrice(s['Precio Gasolina 95 E5']);
+            const p98 = getPrice(s['Precio Gasolina 98 E5']);
+            
+            // Si on a au moins un prix valide
+            if (pDiesel || p95 || p98) {
+                // Rótulo = Marque, Dirección = Adresse
+                const name = s['Rótulo'] !== "N/A" ? s['Rótulo'] : s['Dirección'];
+                const sLat = getPrice(s['Latitud']);
+                const sLon = getPrice(s['Longitud (WGS84)']);
+                
+                // On récupère les horaires d'ouverture (c'est dispo dans l'API espagnole !)
+                const schedule = s['Horario'] ? [s['Horario']] : [];
+
+                stationsList.push({
+                    name: name,
+                    lat: sLat, lon: sLon,
+                    country: 'ES', icons: '🇪🇸',
+                    prices: { Diesel: pDiesel, SP95: p95, E10: p95, SP98: p98 },
+                    services: schedule // On affiche les horaires à la place des services, c'est très pratique !
+                });
+            }
+        });
+    } catch (e) { console.error("Erreur Espagne:", e); }
+
 // --- AFFICHAGE ---
 window.updateDisplay = function() {
     markersGroup.clearLayers();
