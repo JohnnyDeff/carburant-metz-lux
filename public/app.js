@@ -189,20 +189,28 @@ window.updateDisplay = function() {
         return;
     }
 
-    filtered.forEach(s => {
+filtered.forEach(s => {
         const priceVal = s.prices[selectedFuel];
         const priceText = typeof priceVal === 'number' ? priceVal.toFixed(3) + ' €' : priceVal;
 
-        // Création du marqueur et ajout DANS LE CLUSTER
-        const marker = L.marker([s.lat, s.lon]).bindPopup(`<b>${s.icons} ${s.name}</b><br>${selectedFuel}: <b>${priceText}</b>`);
+        // --- GESTION DES TENDANCES (Hausse/Baisse) ---
+        let trendIcon = '';
+        if (s.country === 'LU' && s.prices.trends && s.prices.trends[selectedFuel]) {
+            const trend = s.prices.trends[selectedFuel];
+            if (trend === 'hausse') trendIcon = ' <span style="color:#ef4444; font-weight:bold;">↗</span>';
+            if (trend === 'baisse') trendIcon = ' <span style="color:#10b981; font-weight:bold;">↘</span>';
+        }
+
+        // Marqueur Carte (on ajoute trendIcon)
+        const marker = L.marker([s.lat, s.lon]).bindPopup(`<b>${s.icons} ${s.name}</b><br>${selectedFuel}: <b>${priceText}</b>${trendIcon}`);
         markersGroup.addLayer(marker);
 
+        // Liste Latérale (on ajoute trendIcon)
         const div = document.createElement('div');
         div.className = 'station-item';
-        div.innerHTML = `<strong>${s.icons} ${s.name}</strong><br><small>${selectedFuel}: <b style="color: ${typeof priceVal === 'number' ? 'inherit' : '#8b5cf6'}">${priceText}</b></small>`;
+        div.innerHTML = `<strong>${s.icons} ${s.name}</strong><br><small>${selectedFuel}: <b style="color: ${typeof priceVal === 'number' ? 'inherit' : '#8b5cf6'}">${priceText}</b>${trendIcon}</small>`;
         
         div.onclick = () => { 
-            // On zoome sur le cluster pour l'éclater
             map.setView([s.lat, s.lon], 15); 
             marker.openPopup(); 
         };
