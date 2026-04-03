@@ -8,10 +8,10 @@ let stationsList = [];
 let selectedFuel = 'Diesel';
 let mapTimeout;
 
-// --- FONCTION DE CALCUL DE DISTANCE (Pour fusionner API FR et TomTom) ---
+// --- FONCTION DE CALCUL DE DISTANCE ---
 function getDistance(lat1, lon1, lat2, lon2) {
     if (!lat1 || !lon1 || !lat2 || !lon2) return 99999;
-    const R = 6371e3; // Rayon de la terre en mètres
+    const R = 6371e3;
     const p1 = lat1 * Math.PI / 180;
     const p2 = lat2 * Math.PI / 180;
     const dp = (lat2 - lat1) * Math.PI / 180;
@@ -42,7 +42,9 @@ document.addEventListener('DOMContentLoaded', () => {
         userMarker = L.circleMarker(e.latlng, {
             radius: 8, fillColor: "#3b82f6", color: "#ffffff", weight: 2, fillOpacity: 1
         }).addTo(map).bindPopup("📍 Vous êtes ici !").openPopup();
+        
         loadData(e.latlng.lat, e.latlng.lng);
+        window.updateDisplay(); 
     });
 
     loadData(49.45, 6.15);
@@ -78,12 +80,10 @@ window.filterFuel = function(fuel) {
 async function loadData(lat, lng) {
     document.getElementById('stations-list').innerHTML = '<div style="padding:15px; text-align:center;">Recherche en cours... ⏳</div>';
     stationsList = [];
+    let tomtomStations = [];
 
-    let tomtomStations = []; // On va stocker toutes les stations TomTom pour le mappage
-
-    // 1. Récupération GLOBALE TomTom (pour trouver les noms FR, LU et BE)
+    // 1. Récupération GLOBALE TomTom
     try {
-        // On enlève le countrySet=LU,BE pour avoir aussi la France
         const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=${lat}&lon=${lng}&radius=50000&limit=100`);
         const ttData = await ttRes.json();
         if (ttData.results) {
@@ -97,7 +97,7 @@ async function loadData(lat, lng) {
         }
     } catch (e) { console.error("Erreur TomTom:", e); }
 
-    // 2. LU et BE (Utilisation des données TomTom)
+    // 2. LU et BE
     try {
         const [luxRes, beRes] = await Promise.all([
             fetch('/api/lux-prices'),
@@ -109,12 +109,11 @@ async function loadData(lat, lng) {
         tomtomStations.forEach(tt => {
             if (tt.countryCode === 'LU' || tt.countryCode === 'BE') {
                 stationsList.push({
-                    name: tt.name,
-                    lat: tt.lat, lon: tt.lon,
+                    name: tt.name, lat: tt.lat, lon: tt.lon,
                     country: tt.countryCode,
                     icons: tt.countryCode === 'LU' ? '🇱🇺' : '🇧🇪',
                     prices: tt.countryCode === 'LU' ? luxPrices : bePrices,
-                    services: [] // Pas de services dispo pour LU/BE via cette API
+                    services: []
                 });
             }
         });
@@ -137,7 +136,7 @@ async function loadData(lat, lng) {
         }
     } catch (e) { console.error("Erreur EV:", e); }
 
-    // 4. France (Fusion TomTom + Services)
+    // 4. France
     try {
         const frRes = await fetch(`/api/france-proxy?lat=${lat}&lng=${lng}`);
         const frData = await frRes.json();
@@ -163,32 +162,23 @@ async function loadData(lat, lng) {
                 const frLat = r.geom ? r.geom.lat : null;
                 const frLon = r.geom ? r.geom.lon : null;
 
-                // --- LE FAMEUX MAPPAGE AVEC TOMTOM (Amélioré) ---
                 let finalName = "";
                 if (frLat && frLon) {
-                    // On élargit la zone de recherche à 250 mètres (pour les grands supermarchés)
                     const nearestTT = tomtomStations.find(tt => getDistance(tt.lat, tt.lon, frLat, frLon) < 250);
-                    
                     if (nearestTT) {
-                        // On vérifie que TomTom a un vrai nom, pas un truc générique
                         const badNames = ["station", "gas station", "station service", "station-service"];
-                        if (!badNames.includes(nearestTT.name.toLowerCase())) {
-                            finalName = nearestTT.name;
-                        }
+                        if (!badNames.includes(nearestTT.name.toLowerCase())) finalName = nearestTT.name;
                     }
                 }
                 
-                // Si la station TomTom est introuvable (ou si son nom est nul), on garde la belle adresse
                 if (!finalName) {
                     const street = r.adresse || "";
                     const city = r.ville ? r.ville.toUpperCase() : "";
                     finalName = street ? `${street} - ${city}` : "Station FR";
                 }
 
-                // --- EXTRACTION DES SERVICES ---
                 let extractedServices = [];
                 if (r.services_service) {
-                    // L'API sépare souvent les services avec " // "
                     if (typeof r.services_service === 'string') {
                         extractedServices = r.services_service.split('//').map(s => s.trim()).filter(s => s !== '');
                     } else if (Array.isArray(r.services_service)) {
@@ -197,8 +187,7 @@ async function loadData(lat, lng) {
                 }
 
                 stationsList.push({
-                    name: finalName,
-                    lat: frLat, lon: frLon,
+                    name: finalName, lat: frLat, lon: frLon,
                     country: 'FR', icons: '🇫🇷', prices: prices,
                     services: extractedServices
                 });
@@ -218,7 +207,7 @@ async function loadData(lat, lng) {
                         lat: s.lat, lon: s.lng,
                         country: 'DE', icons: '🇩🇪',
                         prices: { Diesel: s.diesel, SP95: s.e5 || s.e10, SP98: null },
-                        services: [] // Tankerkönig ne donne pas les services dans cette version
+                        services: [] 
                     });
                 }
             });
@@ -231,10 +220,10 @@ async function loadData(lat, lng) {
 // --- AFFICHAGE ---
 window.updateDisplay = function() {
     markersGroup.clearLayers();
-    
     const listContainer = document.getElementById('stations-list');
     listContainer.innerHTML = '';
 
+    const userLatLng = userMarker ? userMarker.getLatLng() : null;
     let filtered = stationsList.filter(s => s.prices && s.prices[selectedFuel] !== undefined && s.prices[selectedFuel] !== null);
 
     filtered.sort((a, b) => {
@@ -252,7 +241,17 @@ window.updateDisplay = function() {
         const priceVal = s.prices[selectedFuel];
         const priceText = typeof priceVal === 'number' ? priceVal.toFixed(3) + ' €' : priceVal;
 
-        // Gestion des tendances (LUX)
+        // Calcul Distance
+        let distanceText = "";
+        if (userLatLng) {
+            const distMeters = getDistance(userLatLng.lat, userLatLng.lng, s.lat, s.lon);
+            distanceText = distMeters > 1000 ? `(${(distMeters/1000).toFixed(1)} km)` : `(${Math.round(distMeters)} m)`;
+        }
+
+        // Itinéraire Google Maps propre
+        const gpsUrl = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}`;
+
+        // Tendances
         let trendIcon = '';
         if (s.country === 'LU' && s.prices.trends && s.prices.trends[selectedFuel]) {
             const trend = s.prices.trends[selectedFuel];
@@ -261,21 +260,36 @@ window.updateDisplay = function() {
             if (trend === 'stable') trendIcon = ' <span style="color:#9ca3af; font-weight:bold;">=</span>';
         }
 
-        // --- GESTION DES SERVICES (AFFICHAGE) ---
+        // Services
         let servicesHtml = '';
         if (s.services && s.services.length > 0) {
-            // On affiche les 3 premiers services pour ne pas inonder l'écran
-            const displayServices = s.services.slice(0, 3).join(' • ');
-            const extra = s.services.length > 3 ? '...' : '';
-            servicesHtml = `<br><small style="color:#888; display:block; margin-top:4px; font-size:0.8em;">🛠️ ${displayServices}${extra}</small>`;
+            servicesHtml = `<br><small style="color:#888; font-size:0.8em; display:block; margin-top:4px;">🛠️ ${s.services.slice(0, 3).join(' • ')}</small>`;
         }
 
-        const marker = L.marker([s.lat, s.lon]).bindPopup(`<b>${s.icons} ${s.name}</b><br>${selectedFuel}: <b>${priceText}</b>${trendIcon}${servicesHtml}`);
+        const marker = L.marker([s.lat, s.lon]).bindPopup(`
+            <b>${s.icons} ${s.name}</b><br>
+            ${selectedFuel}: <b>${priceText}</b>${trendIcon}
+            ${servicesHtml}<br>
+            <a href="${gpsUrl}" target="_blank" style="display:inline-block; margin-top:8px; color:#3b82f6; text-decoration:none; font-weight:bold;">🚗 Itinéraire ${distanceText}</a>
+        `);
         markersGroup.addLayer(marker);
 
         const div = document.createElement('div');
         div.className = 'station-item';
-        div.innerHTML = `<strong>${s.icons} ${s.name}</strong><br><small>${selectedFuel}: <b style="color: ${typeof priceVal === 'number' ? 'inherit' : '#8b5cf6'}">${priceText}</b>${trendIcon}</small>${servicesHtml}`;
+        div.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                <strong>${s.icons} ${s.name}</strong>
+                <span style="font-size:0.8em; color:#3b82f6; font-weight:bold;">${distanceText}</span>
+            </div>
+            <small>${selectedFuel}: <b style="color: ${typeof priceVal === 'number' ? 'inherit' : '#8b5cf6'}">${priceText}</b>${trendIcon}</small>
+            ${servicesHtml}
+            <div style="margin-top:8px;">
+                <a href="${gpsUrl}" target="_blank" onclick="event.stopPropagation();" 
+                   style="display:inline-block; font-size:0.8em; color:white; background:#3b82f6; padding:4px 8px; border-radius:4px; text-decoration:none;">
+                   🗺️ Y aller
+                </a>
+            </div>
+        `;
         
         div.onclick = () => { 
             map.setView([s.lat, s.lon], 15); 
