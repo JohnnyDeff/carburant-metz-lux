@@ -89,13 +89,31 @@ async function fetchNationalPricesBackground() {
             const priceText = $(el).find('.samenstelling-chart__price').text().trim();
             const match = priceText.match(/([0-9][.,][0-9]{2,4})/);
             
+           $('section.samenstelling-chart').each((i, el) => {
+            // On récupère le titre en minuscules (ex: "gasoil diesel à la pompe")
+            const title = $(el).find('h3.samenstelling-chart__title').text().trim().toLowerCase();
+            const priceText = $(el).find('.samenstelling-chart__price').text().trim();
+            const match = priceText.match(/([0-9][.,][0-9]{2,4})/);
+            
             if (match) {
                 const price = parseFloat(match[1].replace(',', '.'));
-                if (title === 'essence 95 ron - e10') { newBel.SP95 = price; newBel.E10 = price; }
-                if (title === 'essence 98 ron - e5') { newBel.SP98 = price; }
-                if (title === 'diesel') { newBel.Diesel = price; }
+                
+                // SP95 (E10)
+                if (title.includes('essence 95 ron - e10')) { 
+                    newBel.SP95 = price; 
+                    newBel.E10 = price; 
+                }
+                // SP98 (E5)
+                if (title.includes('essence 98 ron - e5')) { 
+                    newBel.SP98 = price; 
+                }
+                // LE VRAI DIESEL ROUTIER (On cherche "gasoil diesel" ou "à la pompe")
+                if (title.includes('gasoil diesel à la pompe') || title.includes('gasoil diesel a la pompe')) { 
+                    newBel.Diesel = price; 
+                }
             }
         });
+            
         
         if (Object.keys(newBel).length > 0) {
             memoryPrices.bel = newBel;
