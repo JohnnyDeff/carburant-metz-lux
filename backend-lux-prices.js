@@ -150,4 +150,59 @@ app.get('/api/germany-proxy', async (req, res) => {
     } catch (error) { res.status(500).json({ error: "L'API Allemagne est inaccessible" }); }
 });
 
+// --- FONCTION DISTANCE CÔTÉ SERVEUR ---
+function getDistanceBackend(lat1, lon1, lat2, lon2) {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return 99999;
+    const R = 6371e3;
+    const p1 = lat1 * Math.PI / 180;
+    const p2 = lat2 * Math.PI / 180;
+    const dp = (lat2 - lat1) * Math.PI / 180;
+    const dl = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
+    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+}
+
+// --- GESTION DE L'ESPAGNE (En arrière-plan) ---
+let spainStationsCache = [];
+
+async function fetchSpainBackground() {
+    console.log("🔄 Chargement de l'API Espagne...");
+    try {
+        const url = 'https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/';
+        // On contourne les éventuels soucis de certificat SSL du gouvernement espagnol
+        const res = await axios.get(url, { httpsAgent: new (require('https').Agent)({ rejectUnauthorized: false }) });
+        
+        if (res.data && res.data.ListaEESSPrecio) {
+            spainStationsCache = res.data.ListaEESSPrecio;
+            console.log(`✅ ESPAGNE : ${spainStationsCache.length} stations mises en mémoire.`);
+        }
+    } catch (e) {
+        console.log("⚠️ Échec ESPAGNE, on garde l'ancien cache.");
+    }
+}
+
+// On charge l'Espagne au démarrage, puis toutes les heures
+fetchSpainBackground();
+setInterval(fetchSpainBackground, 60 * 60 * 1000); 
+
+// --- ROUTE API ESPAGNE (Filtre par proximité) ---
+app.get('/api/spain-proxy', (req, res) => {
+    const userLat = parseFloat(req.query.lat);
+    const userLng = parseFloat(req.query.lng);
+    
+    if (!userLat || !userLng || spainStationsCache.length === 0) {
+        return res.json([]);
+    }
+
+    // On filtre pour ne garder que les stations à moins de 50km
+    const nearbyStations = spainStationsCache.filter(s => {
+        // Attention: Remplacement des virgules par des points !
+        const sLat = parseFloat(s['Latitud'].replace(',', '.'));
+        const sLng = parseFloat(s['Longitud (WGS84)'].replace(',', '.'));
+        return getDistanceBackend(userLat, userLng, sLat, sLng) <= 50000; 
+    });
+
+    res.json(nearbyStations);
+});
+    
 app.listen(PORT, () => console.log(`Serveur prêt sur le port ${PORT}`));
