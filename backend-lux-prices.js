@@ -20,7 +20,7 @@ const axiosConfig = {
 // --- MÉMOIRE VIVE DU SERVEUR ---
 let memoryPrices = {
     lux: { Diesel: 1.54, SP95: 1.63, E10: 1.63, SP98: 1.86, trends: {} },
-    bel: { Diesel: 1.77, SP95: 1.72, E10: 1.72, SP98: 1.91 }
+    bel: { Diesel: 1.77, SP95: 1.72, E10: 1.72, SP98: 1.91, trends: {} }
 };
 
 const cache = { france: {}, germany: {} };
@@ -78,22 +78,21 @@ async function fetchNationalPricesBackground() {
         console.log("⚠️ Échec LUX (Petrol.lu), conservation de la mémoire.");
     }
 
-  // --- BELGIQUE (Site Officiel du Gouvernement Belge - SPF Économie) ---
+    // --- BELGIQUE (Site Officiel du Gouvernement Belge - SPF Économie) ---
     try {
         const urlBelgique = 'https://economie.fgov.be/fr/themes/energie/prix-de-lenergie/prix-maximum-des-produits/tarif-officiel-des-produits';
         const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(urlBelgique)}`;
         
         const res = await axios.get(proxyUrl);
         const $ = cheerio.load(res.data.contents);
-        let newBel = { trends: {} }; // <-- On prépare la boîte pour les tendances
+        let newBel = { trends: {} };
         
-        // On cible le fameux tableau "petrolTable_data"
         $('tbody#petrolTable_data tr').each((i, el) => {
             const title = $(el).find('td').eq(0).text().trim().toLowerCase();
             const priceText = $(el).find('td').eq(1).text().trim();
             const match = priceText.match(/([0-9][.,][0-9]{2,4})/);
             
-            // --- NOUVEAUTÉ : ANALYSE DE LA TENDANCE ---
+            // Analyse de la tendance (image)
             const imgAlt = $(el).find('td').eq(2).find('img').attr('alt') || '';
             const imgSrc = $(el).find('td').eq(2).find('img').attr('src') || '';
             
@@ -119,16 +118,20 @@ async function fetchNationalPricesBackground() {
             }
         });
         
-        // On vérifie qu'on a bien plus que l'objet "trends" vide
         if (Object.keys(newBel).length > 1) {
             memoryPrices.bel = newBel;
-            console.log("✅ BEL mis à jour via SPF Économie :", newBel);
+            console.log("✅ BEL mis à jour via SPF Économie :", newBel.trends);
         } else {
             console.log("⚠️ Prix belges introuvables avec la structure du SPF.");
         }
     } catch (e) {
         console.log("⚠️ Échec BEL via SPF, conservation de la mémoire.");
     }
+}
+
+fetchNationalPricesBackground();
+setInterval(fetchNationalPricesBackground, 6 * 60 * 60 * 1000);
+
 // --- GESTION DE L'ESPAGNE (En arrière-plan) ---
 let spainStationsCache = [];
 
