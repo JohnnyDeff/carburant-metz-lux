@@ -1,4 +1,5 @@
 'use strict';
+
 // --- CONFIGURATION ---
 const TOMTOM_KEY = 'CRDxsSiKnAMIpuYJQf3MNs78q25zKLBJ';
 
@@ -215,7 +216,7 @@ async function loadData(lat, lng) {
         }
     } catch (e) { console.error("Erreur Allemagne:", e); }
 
-    // 6. Espagne (Désormais bien à l'intérieur de la fonction loadData !)
+    // 6. Espagne
     try {
         const esRes = await fetch(`/api/spain-proxy?lat=${lat}&lng=${lng}`);
         const esData = await esRes.json();
@@ -279,19 +280,19 @@ window.updateDisplay = function() {
             distanceText = distMeters > 1000 ? `(${(distMeters/1000).toFixed(1)} km)` : `(${Math.round(distMeters)} m)`;
         }
 
-        // Itinéraire Google Maps propre (Nouveau format direct)
+        // Itinéraire Google Maps (Lien OFFICIEL, fonctionne à 100% sur mobile et PC)
         const gpsUrl = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}`;
 
-        // Tendances
+        // Tendances (pour TOUS les pays qui ont un champ 'trends' : LU, BE)
         let trendIcon = '';
-        if (s.country === 'LU' && s.prices.trends && s.prices.trends[selectedFuel]) {
+        if (s.prices.trends && s.prices.trends[selectedFuel]) {
             const trend = s.prices.trends[selectedFuel];
             if (trend === 'hausse') trendIcon = ' <span style="color:#ef4444; font-weight:bold;">↗</span>';
             if (trend === 'baisse') trendIcon = ' <span style="color:#10b981; font-weight:bold;">↘</span>';
             if (trend === 'stable') trendIcon = ' <span style="color:#9ca3af; font-weight:bold;">=</span>';
         }
 
-        // Services
+        // Services ou Horaires
         let servicesHtml = '';
         if (s.services && s.services.length > 0) {
             servicesHtml = `<br><small style="color:#888; font-size:0.8em; display:block; margin-top:4px;">🛠️ ${s.services.slice(0, 3).join(' • ')}</small>`;
