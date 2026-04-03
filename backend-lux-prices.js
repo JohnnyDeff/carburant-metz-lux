@@ -77,7 +77,6 @@ async function fetchNationalPricesBackground() {
         const $ = cheerio.load(res.data.contents);
         let newBel = { trends: {} };
         
-        // On cherche tous les blocs de prix
         const charts = $('section.samenstelling-chart');
         console.log(`🔎 BEL : ${charts.length} blocs trouvés sur la page.`);
 
@@ -93,7 +92,6 @@ async function fetchNationalPricesBackground() {
                 if (priceDiv.hasClass('price-change--up')) trend = 'hausse';
                 if (priceDiv.hasClass('price-change--down')) trend = 'baisse';
 
-                // Log pour voir ce qu'on trouve vraiment
                 console.log(`⛽ Trouvé en BEL : "${title}" -> ${price}€`);
 
                 if (title.includes('95 ron') && title.includes('e10')) {
@@ -117,6 +115,11 @@ async function fetchNationalPricesBackground() {
     } catch (e) {
         console.log("⚠️ BEL : Erreur de connexion au proxy AllOrigins.");
     }
+} // <--- C'ÉTAIT CETTE ACCOLADE QUI MANQUAIT !
+
+fetchNationalPricesBackground();
+setInterval(fetchNationalPricesBackground, 6 * 60 * 60 * 1000); 
+
 // --- ESPAGNE ---
 let spainStationsCache = [];
 async function fetchSpainBackground() {
