@@ -78,48 +78,57 @@ async function fetchNationalPricesBackground() {
         console.log("⚠️ Échec LUX (Petrol.lu), conservation de la mémoire.");
     }
 
-    // --- BELGIQUE (Via AllOrigins avec nouvelle structure Energia) ---
+  // --- BELGIQUE (Site Officiel du Gouvernement Belge - SPF Économie) ---
     try {
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://www.energiafed.be/fr/prix-maximums')}`;
+        const urlBelgique = 'https://economie.fgov.be/fr/themes/energie/prix-de-lenergie/prix-maximum-des-produits/tarif-officiel-des-produits';
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(urlBelgique)}`;
+        
         const res = await axios.get(proxyUrl);
         const $ = cheerio.load(res.data.contents);
-        let newBel = {};
+        let newBel = { trends: {} }; // <-- On prépare la boîte pour les tendances
         
-        $('section.samenstelling-chart').each((i, el) => {
-            const title = $(el).find('h3.samenstelling-chart__title').text().trim().toLowerCase();
-            const priceText = $(el).find('.samenstelling-chart__price').text().trim();
+        // On cible le fameux tableau "petrolTable_data"
+        $('tbody#petrolTable_data tr').each((i, el) => {
+            const title = $(el).find('td').eq(0).text().trim().toLowerCase();
+            const priceText = $(el).find('td').eq(1).text().trim();
             const match = priceText.match(/([0-9][.,][0-9]{2,4})/);
+            
+            // --- NOUVEAUTÉ : ANALYSE DE LA TENDANCE ---
+            const imgAlt = $(el).find('td').eq(2).find('img').attr('alt') || '';
+            const imgSrc = $(el).find('td').eq(2).find('img').attr('src') || '';
+            
+            let trend = 'stable';
+            if (imgAlt.includes('+') || imgSrc.includes('haut')) trend = 'hausse';
+            else if (imgAlt.includes('-') || imgSrc.includes('bas')) trend = 'baisse';
             
             if (match) {
                 const price = parseFloat(match[1].replace(',', '.'));
                 
-                if (title.includes('essence 95 ron - e10')) { 
-                    newBel.SP95 = price; 
-                    newBel.E10 = price; 
+                if (title.includes('essence 95 ron e10')) { 
+                    newBel.SP95 = price; newBel.E10 = price;
+                    newBel.trends.SP95 = trend;
                 }
-                if (title.includes('essence 98 ron - e5')) { 
-                    newBel.SP98 = price; 
+                if (title.includes('essence 98 ron e5')) { 
+                    newBel.SP98 = price;
+                    newBel.trends.SP98 = trend;
                 }
-                if (title.includes('gasoil diesel à la pompe') || title.includes('gasoil diesel a la pompe')) { 
-                    newBel.Diesel = price; 
+                if (title.includes('diesel b7')) { 
+                    newBel.Diesel = price;
+                    newBel.trends.Diesel = trend;
                 }
             }
         });
         
-        if (Object.keys(newBel).length > 0) {
+        // On vérifie qu'on a bien plus que l'objet "trends" vide
+        if (Object.keys(newBel).length > 1) {
             memoryPrices.bel = newBel;
-            console.log("✅ BEL mis à jour via Proxy :", newBel);
+            console.log("✅ BEL mis à jour via SPF Économie :", newBel);
         } else {
-            console.log("⚠️ Prix belges introuvables avec la nouvelle structure.");
+            console.log("⚠️ Prix belges introuvables avec la structure du SPF.");
         }
     } catch (e) {
-        console.log("⚠️ Échec BEL via proxy, conservation de la mémoire.");
+        console.log("⚠️ Échec BEL via SPF, conservation de la mémoire.");
     }
-}
-
-fetchNationalPricesBackground();
-setInterval(fetchNationalPricesBackground, 6 * 60 * 60 * 1000);
-
 // --- GESTION DE L'ESPAGNE (En arrière-plan) ---
 let spainStationsCache = [];
 
