@@ -69,45 +69,54 @@ async function fetchNationalPricesBackground() {
         }
     } catch (e) { console.log("⚠️ Échec LUX."); }
 
-    // --- BELGIQUE (Via Energiafed - Source robuste pour robot) ---
+   // --- BELGIQUE (Version Debug v2) ---
     try {
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://www.energiafed.be/fr/prix-maximums')}`;
+        const targetUrl = 'https://www.energiafed.be/fr/prix-maximums';
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
         const res = await axios.get(proxyUrl);
         const $ = cheerio.load(res.data.contents);
         let newBel = { trends: {} };
         
-        $('section.samenstelling-chart').each((i, el) => {
-            const title = $(el).find('h3.samenstelling-chart__title').text().trim().toLowerCase();
+        // On cherche tous les blocs de prix
+        const charts = $('section.samenstelling-chart');
+        console.log(`🔎 BEL : ${charts.length} blocs trouvés sur la page.`);
+
+        charts.each((i, el) => {
+            const title = $(el).find('h3').text().trim().toLowerCase();
             const priceDiv = $(el).find('.samenstelling-chart__price');
-            const match = priceDiv.text().trim().match(/([0-9][.,][0-9]{2,4})/);
-            
-            let trend = 'stable';
-            if (priceDiv.hasClass('price-change--up')) trend = 'hausse';
-            else if (priceDiv.hasClass('price-change--down')) trend = 'baisse';
+            const priceText = priceDiv.text().trim();
+            const match = priceText.match(/([0-9][.,][0-9]{2,4})/);
             
             if (match) {
                 const price = parseFloat(match[1].replace(',', '.'));
-                if (title.includes('essence 95 ron - e10')) { 
+                let trend = 'stable';
+                if (priceDiv.hasClass('price-change--up')) trend = 'hausse';
+                if (priceDiv.hasClass('price-change--down')) trend = 'baisse';
+
+                // Log pour voir ce qu'on trouve vraiment
+                console.log(`⛽ Trouvé en BEL : "${title}" -> ${price}€`);
+
+                if (title.includes('95 ron') && title.includes('e10')) {
                     newBel.SP95 = price; newBel.E10 = price; newBel.trends.SP95 = trend;
                 }
-                if (title.includes('essence 98 ron - e5')) { 
+                if (title.includes('98 ron')) {
                     newBel.SP98 = price; newBel.trends.SP98 = trend;
                 }
-                if (title.includes('gasoil diesel à la pompe') || title.includes('gasoil diesel a la pompe')) { 
+                if (title.includes('diesel') && (title.includes('pompe') || title.includes('b7'))) {
                     newBel.Diesel = price; newBel.trends.Diesel = trend;
                 }
             }
         });
+
         if (Object.keys(newBel).length > 1) {
             memoryPrices.bel = newBel;
-            console.log("✅ BEL mis à jour via Energiafed.");
+            console.log("✅ BEL MAJ terminée :", newBel);
+        } else {
+            console.log("⚠️ BEL : Structure reconnue mais aucun prix matché.");
         }
-    } catch (e) { console.log("⚠️ Échec BEL."); }
-}
-
-fetchNationalPricesBackground();
-setInterval(fetchNationalPricesBackground, 6 * 60 * 60 * 1000);
-
+    } catch (e) {
+        console.log("⚠️ BEL : Erreur de connexion au proxy AllOrigins.");
+    }
 // --- ESPAGNE ---
 let spainStationsCache = [];
 async function fetchSpainBackground() {
