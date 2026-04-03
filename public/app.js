@@ -163,15 +163,22 @@ async function loadData(lat, lng) {
                 const frLat = r.geom ? r.geom.lat : null;
                 const frLon = r.geom ? r.geom.lon : null;
 
-                // --- LE FAMEUX MAPPAGE AVEC TOMTOM ---
+                // --- LE FAMEUX MAPPAGE AVEC TOMTOM (Amélioré) ---
                 let finalName = "";
                 if (frLat && frLon) {
-                    // Cherche une station TomTom à moins de 100 mètres
-                    const nearestTT = tomtomStations.find(tt => getDistance(tt.lat, tt.lon, frLat, frLon) < 100);
-                    if (nearestTT) finalName = nearestTT.name;
+                    // On élargit la zone de recherche à 250 mètres (pour les grands supermarchés)
+                    const nearestTT = tomtomStations.find(tt => getDistance(tt.lat, tt.lon, frLat, frLon) < 250);
+                    
+                    if (nearestTT) {
+                        // On vérifie que TomTom a un vrai nom, pas un truc générique
+                        const badNames = ["station", "gas station", "station service", "station-service"];
+                        if (!badNames.includes(nearestTT.name.toLowerCase())) {
+                            finalName = nearestTT.name;
+                        }
+                    }
                 }
                 
-                // Si pas de match, on utilise l'adresse
+                // Si la station TomTom est introuvable (ou si son nom est nul), on garde la belle adresse
                 if (!finalName) {
                     const street = r.adresse || "";
                     const city = r.ville ? r.ville.toUpperCase() : "";
