@@ -43,42 +43,46 @@ const CACHE_DURATION_GEO = 10 * 60 * 1000; // 10 minutes pour FR/DE
 async function fetchNationalPricesBackground() {
     console.log("🔄 Lancement de la mise à jour des prix nationaux...");
     
-// --- LUXEMBOURG (Infiltration AllOrigins + Parsing exact Carbu.com) ---
+// --- LUXEMBOURG (petrol.lu avec calcul des tendances) ---
     try {
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://carbu.com/luxembourg/index.php/prixmaximum')}`;
-        const res = await axios.get(proxyUrl);
-        const $ = cheerio.load(res.data.contents);
-        let newLux = {};
+        const res = await axios.get('https://www.petrol.lu/prix-officiels/', axiosConfig);
+        const $ = cheerio.load(res.data);
+        let tvacRows = [];
         
-        // On cherche toutes les lignes (tr) du tableau des prix
-        $('table.prix-officiel tbody tr').each((i, el) => {
-            // Le nom est dans la colonne avec la classe officialPriceBe_col1
-            const label = $(el).find('td.officialPriceBe_col1').text().toLowerCase();
-            // Le prix est dans la colonne avec la classe price
-            const valueText = $(el).find('td.price').text();
-            
-            if (label && valueText) {
-                // On extrait les chiffres (ex: "2,021 €/l" -> 2.021)
-                const priceMatch = valueText.match(/([0-9][.,][0-9]{3})/);
-                
-                if (priceMatch) {
-                    const price = parseFloat(priceMatch[1].replace(',', '.'));
-                    
-                    if (label.includes('diesel')) newLux.Diesel = price;
-                    if (label.includes('95')) { newLux.SP95 = price; newLux.E10 = price; }
-                    if (label.includes('98')) newLux.SP98 = price;
-                }
+        // On récupère toutes les lignes TTC (TVAC)
+        $('tbody tr').each((i, el) => {
+            const tds = $(el).find('td');
+            if (tds.length >= 7 && tds.eq(6).text().trim().toUpperCase() === 'TVAC') {
+                tvacRows.push({
+                    sp98: parseFloat(tds.eq(1).text().trim()),
+                    sp95: parseFloat(tds.eq(2).text().trim()),
+                    diesel: parseFloat(tds.eq(3).text().trim())
+                });
             }
         });
 
-        if (Object.keys(newLux).length > 0) {
+        // Si on a bien au moins les prix actuels et les anciens prix
+        if (tvacRows.length >= 2) {
+            const act = tvacRows[0]; // Prix actuels
+            const anc = tvacRows[1]; // Anciens prix
+
+            let newLux = {
+                Diesel: act.diesel, 
+                SP95: act.sp95, 
+                E10: act.sp95, 
+                SP98: act.sp98,
+                // On crée un dictionnaire des tendances
+                trends: {
+                    Diesel: act.diesel > anc.diesel ? 'hausse' : (act.diesel < anc.diesel ? 'baisse' : 'stable'),
+                    SP95: act.sp95 > anc.sp95 ? 'hausse' : (act.sp95 < anc.sp95 ? 'baisse' : 'stable'),
+                    SP98: act.sp98 > anc.sp98 ? 'hausse' : (act.sp98 < anc.sp98 ? 'baisse' : 'stable')
+                }
+            };
             memoryPrices.lux = newLux;
-            console.log("✅ LUX mis à jour via Carbu.com :", newLux);
-        } else {
-            console.log("⚠️ Tableau carbu.com introuvable via le proxy.");
+            console.log("✅ LUX mis à jour via Petrol.lu avec tendances :", newLux.trends);
         }
     } catch (e) {
-        console.log("⚠️ Échec de connexion au Proxy AllOrigins pour carbu.com.");
+        console.log("⚠️ Échec LUX (Petrol.lu), conservation de la mémoire.");
     }
 
     // --- BELGIQUE (On garde AllOrigins qui fonctionnait) ---
