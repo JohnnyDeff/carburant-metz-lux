@@ -28,7 +28,6 @@ body.light-mode .controls-header, body.light-mode #sidebar { border-color: #d1d5
 .fuel-filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 15px; }
 .pill { flex: 1 1 45%; padding: 10px; border: 1px solid #4b5563; border-radius: 20px; background: transparent; color: inherit; cursor: pointer; text-align: center; font-weight: 500; font-size: 0.9em; }
 .pill.active { background: #10b981; color: white; border-color: #10b981; font-weight: bold; }
-/* Bouton Elec spécial */
 .pill.elec-btn.active { background: #8b5cf6; border-color: #8b5cf6; }
 
 /* --- LISTE --- */
@@ -36,7 +35,7 @@ body.light-mode .controls-header, body.light-mode #sidebar { border-color: #d1d5
 
 /* --- RESPONSIVE MOBILE (< 768px) --- */
 @media (max-width: 768px) {
-    .container { flex-direction: column-reverse; } /* Carte en haut, liste en bas */
+    .container { flex-direction: column-reverse; }
     #sidebar { width: 100%; height: 40vh; border-right: none; border-top: 2px solid #3b82f6; }
     #map { width: 100%; height: 60vh; flex-grow: 0; }
     .controls-header { padding: 10px; }
