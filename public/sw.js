@@ -1,3 +1,4 @@
+'use strict';
 // Nom du cache
 const CACHE_NAME = 'carbumap-v1';
 
