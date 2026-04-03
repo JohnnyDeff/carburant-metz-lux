@@ -25,6 +25,18 @@ let memoryPrices = {
 const cache = { france: {}, germany: {} };
 const CACHE_DURATION_GEO = 10 * 60 * 1000; // 10 minutes
 
+// --- FONCTION DISTANCE CÔTÉ SERVEUR ---
+function getDistanceBackend(lat1, lon1, lat2, lon2) {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return 99999;
+    const R = 6371e3;
+    const p1 = lat1 * Math.PI / 180;
+    const p2 = lat2 * Math.PI / 180;
+    const dp = (lat2 - lat1) * Math.PI / 180;
+    const dl = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
+    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+}
+
 // --- LE TRAVAILLEUR DE L'OMBRE (Tâches en arrière-plan) ---
 async function fetchNationalPricesBackground() {
     console.log("🔄 Lancement de la mise à jour des prix nationaux...");
@@ -65,35 +77,23 @@ async function fetchNationalPricesBackground() {
         console.log("⚠️ Échec LUX (Petrol.lu), conservation de la mémoire.");
     }
 
-// --- BELGIQUE (Via AllOrigins avec nouvelle structure Energia) ---
+    // --- BELGIQUE (Via AllOrigins avec nouvelle structure Energia) ---
     try {
         const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://www.energiafed.be/fr/prix-maximums')}`;
         const res = await axios.get(proxyUrl);
         const $ = cheerio.load(res.data.contents);
         let newBel = {};
         
-        // On parcourt chaque "carte" de carburant sur le nouveau site
         $('section.samenstelling-chart').each((i, el) => {
             const title = $(el).find('h3.samenstelling-chart__title').text().trim().toLowerCase();
-            const priceText = $(el).find('.samenstelling-chart__price').text().trim(); // ex: "€/l 1.9010"
-            
-            // On attrape le chiffre exact (jusqu'à 4 décimales)
+            const priceText = $(el).find('.samenstelling-chart__price').text().trim();
             const match = priceText.match(/([0-9][.,][0-9]{2,4})/);
             
             if (match) {
                 const price = parseFloat(match[1].replace(',', '.'));
-                
-                // On cible exactement les bons noms du nouveau site
-                if (title === 'essence 95 ron - e10') {
-                    newBel.SP95 = price;
-                    newBel.E10 = price;
-                }
-                if (title === 'essence 98 ron - e5') {
-                    newBel.SP98 = price;
-                }
-                if (title === 'diesel') { // On évite "diesel - b10" ou "diesel - xtl"
-                    newBel.Diesel = price;
-                }
+                if (title === 'essence 95 ron - e10') { newBel.SP95 = price; newBel.E10 = price; }
+                if (title === 'essence 98 ron - e5') { newBel.SP98 = price; }
+                if (title === 'diesel') { newBel.Diesel = price; }
             }
         });
         
@@ -106,6 +106,31 @@ async function fetchNationalPricesBackground() {
     } catch (e) {
         console.log("⚠️ Échec BEL via proxy, conservation de la mémoire.");
     }
+}
+
+fetchNationalPricesBackground();
+setInterval(fetchNationalPricesBackground, 6 * 60 * 60 * 1000);
+
+// --- GESTION DE L'ESPAGNE (En arrière-plan) ---
+let spainStationsCache = [];
+
+async function fetchSpainBackground() {
+    console.log("🔄 Chargement de l'API Espagne...");
+    try {
+        const url = 'https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/';
+        const res = await axios.get(url, { httpsAgent: new (require('https').Agent)({ rejectUnauthorized: false }) });
+        
+        if (res.data && res.data.ListaEESSPrecio) {
+            spainStationsCache = res.data.ListaEESSPrecio;
+            console.log(`✅ ESPAGNE : ${spainStationsCache.length} stations mises en mémoire.`);
+        }
+    } catch (e) {
+        console.log("⚠️ Échec ESPAGNE, on garde l'ancien cache.");
+    }
+}
+
+fetchSpainBackground();
+setInterval(fetchSpainBackground, 60 * 60 * 1000); 
 
 // --- ROUTES API ULTRA-RAPIDES ---
 app.get('/api/lux-prices', (req, res) => res.json(memoryPrices.lux));
@@ -150,41 +175,6 @@ app.get('/api/germany-proxy', async (req, res) => {
     } catch (error) { res.status(500).json({ error: "L'API Allemagne est inaccessible" }); }
 });
 
-// --- FONCTION DISTANCE CÔTÉ SERVEUR ---
-function getDistanceBackend(lat1, lon1, lat2, lon2) {
-    if (!lat1 || !lon1 || !lat2 || !lon2) return 99999;
-    const R = 6371e3;
-    const p1 = lat1 * Math.PI / 180;
-    const p2 = lat2 * Math.PI / 180;
-    const dp = (lat2 - lat1) * Math.PI / 180;
-    const dl = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
-    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
-}
-
-// --- GESTION DE L'ESPAGNE (En arrière-plan) ---
-let spainStationsCache = [];
-
-async function fetchSpainBackground() {
-    console.log("🔄 Chargement de l'API Espagne...");
-    try {
-        const url = 'https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/';
-        // On contourne les éventuels soucis de certificat SSL du gouvernement espagnol
-        const res = await axios.get(url, { httpsAgent: new (require('https').Agent)({ rejectUnauthorized: false }) });
-        
-        if (res.data && res.data.ListaEESSPrecio) {
-            spainStationsCache = res.data.ListaEESSPrecio;
-            console.log(`✅ ESPAGNE : ${spainStationsCache.length} stations mises en mémoire.`);
-        }
-    } catch (e) {
-        console.log("⚠️ Échec ESPAGNE, on garde l'ancien cache.");
-    }
-}
-
-// On charge l'Espagne au démarrage, puis toutes les heures
-fetchSpainBackground();
-setInterval(fetchSpainBackground, 60 * 60 * 1000); 
-
 // --- ROUTE API ESPAGNE (Filtre par proximité) ---
 app.get('/api/spain-proxy', (req, res) => {
     const userLat = parseFloat(req.query.lat);
@@ -194,9 +184,7 @@ app.get('/api/spain-proxy', (req, res) => {
         return res.json([]);
     }
 
-    // On filtre pour ne garder que les stations à moins de 50km
     const nearbyStations = spainStationsCache.filter(s => {
-        // Attention: Remplacement des virgules par des points !
         const sLat = parseFloat(s['Latitud'].replace(',', '.'));
         const sLng = parseFloat(s['Longitud (WGS84)'].replace(',', '.'));
         return getDistanceBackend(userLat, userLng, sLat, sLng) <= 50000; 
@@ -204,5 +192,5 @@ app.get('/api/spain-proxy', (req, res) => {
 
     res.json(nearbyStations);
 });
-    
+
 app.listen(PORT, () => console.log(`Serveur prêt sur le port ${PORT}`));
