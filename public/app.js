@@ -83,8 +83,8 @@ async function loadData(lat, lng) {
     let tomtomStations = [];
 
     // 1. Récupération GLOBALE TomTom
- {
-       const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=${lat}&lon=${lng}&radius=50000&limit=100&countrySet=LU,BE,FR,DE,ES`);
+    try {
+        const ttRes = await fetch(`https://api.tomtom.com/search/2/poiSearch/gas%20station.json?key=${TOMTOM_KEY}&lat=${lat}&lon=${lng}&radius=50000&limit=100&countrySet=LU,BE,FR,DE,ES`);
         const ttData = await ttRes.json();
         if (ttData.results) {
             ttData.results.forEach(s => {
@@ -214,30 +214,22 @@ async function loadData(lat, lng) {
         }
     } catch (e) { console.error("Erreur Allemagne:", e); }
 
-    window.updateDisplay();
-}
-
-// 6. Espagne
+    // 6. Espagne (Désormais bien à l'intérieur de la fonction loadData !)
     try {
         const esRes = await fetch(`/api/spain-proxy?lat=${lat}&lng=${lng}`);
         const esData = await esRes.json();
         
         esData.forEach(s => {
-            // Nettoyage des prix (on remplace la virgule et on gère les champs vides)
             const getPrice = (str) => str ? parseFloat(str.replace(',', '.')) : null;
             
             const pDiesel = getPrice(s['Precio Gasoleo A']);
             const p95 = getPrice(s['Precio Gasolina 95 E5']);
             const p98 = getPrice(s['Precio Gasolina 98 E5']);
             
-            // Si on a au moins un prix valide
             if (pDiesel || p95 || p98) {
-                // Rótulo = Marque, Dirección = Adresse
                 const name = s['Rótulo'] !== "N/A" ? s['Rótulo'] : s['Dirección'];
                 const sLat = getPrice(s['Latitud']);
                 const sLon = getPrice(s['Longitud (WGS84)']);
-                
-                // On récupère les horaires d'ouverture (c'est dispo dans l'API espagnole !)
                 const schedule = s['Horario'] ? [s['Horario']] : [];
 
                 stationsList.push({
@@ -245,11 +237,15 @@ async function loadData(lat, lng) {
                     lat: sLat, lon: sLon,
                     country: 'ES', icons: '🇪🇸',
                     prices: { Diesel: pDiesel, SP95: p95, E10: p95, SP98: p98 },
-                    services: schedule // On affiche les horaires à la place des services, c'est très pratique !
+                    services: schedule
                 });
             }
         });
     } catch (e) { console.error("Erreur Espagne:", e); }
+
+    // On met à jour l'affichage seulement quand TOUS les pays sont chargés
+    window.updateDisplay();
+}
 
 // --- AFFICHAGE ---
 window.updateDisplay = function() {
@@ -282,7 +278,7 @@ window.updateDisplay = function() {
             distanceText = distMeters > 1000 ? `(${(distMeters/1000).toFixed(1)} km)` : `(${Math.round(distMeters)} m)`;
         }
 
-        // Itinéraire Google Maps propre
+        // Itinéraire Google Maps propre (Nouveau format direct)
         const gpsUrl = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}`;
 
         // Tendances
