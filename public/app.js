@@ -1,3 +1,4 @@
+'use strict';
 // --- CONFIGURATION ---
 const TOMTOM_KEY = 'CRDxsSiKnAMIpuYJQf3MNs78q25zKLBJ';
 
