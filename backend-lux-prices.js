@@ -78,59 +78,53 @@ async function fetchNationalPricesBackground() {
         console.log("⚠️ Échec LUX (Petrol.lu), conservation de la mémoire.");
     }
 
-    // --- BELGIQUE (Site Officiel du Gouvernement Belge - SPF Économie) ---
+   // --- BELGIQUE (Via AllOrigins - Site Energiafed avec tendances) ---
     try {
-        const urlBelgique = 'https://economie.fgov.be/fr/themes/energie/prix-de-lenergie/prix-maximum-des-produits/tarif-officiel-des-produits';
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(urlBelgique)}`;
-        
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://www.energiafed.be/fr/prix-maximums')}`;
         const res = await axios.get(proxyUrl);
         const $ = cheerio.load(res.data.contents);
         let newBel = { trends: {} };
         
-        $('tbody#petrolTable_data tr').each((i, el) => {
-            const title = $(el).find('td').eq(0).text().trim().toLowerCase();
-            const priceText = $(el).find('td').eq(1).text().trim();
+        $('section.samenstelling-chart').each((i, el) => {
+            const title = $(el).find('h3.samenstelling-chart__title').text().trim().toLowerCase();
+            const priceDiv = $(el).find('.samenstelling-chart__price');
+            const priceText = priceDiv.text().trim();
             const match = priceText.match(/([0-9][.,][0-9]{2,4})/);
             
-            // Analyse de la tendance (image)
-            const imgAlt = $(el).find('td').eq(2).find('img').attr('alt') || '';
-            const imgSrc = $(el).find('td').eq(2).find('img').attr('src') || '';
-            
+            // On capte la tendance grâce à la classe CSS du site
             let trend = 'stable';
-            if (imgAlt.includes('+') || imgSrc.includes('haut')) trend = 'hausse';
-            else if (imgAlt.includes('-') || imgSrc.includes('bas')) trend = 'baisse';
+            if (priceDiv.hasClass('price-change--up')) trend = 'hausse';
+            else if (priceDiv.hasClass('price-change--down')) trend = 'baisse';
             
             if (match) {
                 const price = parseFloat(match[1].replace(',', '.'));
                 
-                if (title.includes('essence 95 ron e10')) { 
+                if (title.includes('essence 95 ron - e10')) { 
                     newBel.SP95 = price; newBel.E10 = price;
                     newBel.trends.SP95 = trend;
                 }
-                if (title.includes('essence 98 ron e5')) { 
+                if (title.includes('essence 98 ron - e5')) { 
                     newBel.SP98 = price;
                     newBel.trends.SP98 = trend;
                 }
-                if (title.includes('diesel b7')) { 
+                // On cible bien le VRAI diesel routier
+                if (title.includes('gasoil diesel à la pompe') || title.includes('gasoil diesel a la pompe')) { 
                     newBel.Diesel = price;
                     newBel.trends.Diesel = trend;
                 }
             }
         });
         
+        // On vérifie qu'on a trouvé au moins un prix (> 1 car on a déjà la clé 'trends')
         if (Object.keys(newBel).length > 1) {
             memoryPrices.bel = newBel;
-            console.log("✅ BEL mis à jour via SPF Économie :", newBel.trends);
+            console.log("✅ BEL mis à jour via Energiafed :", newBel);
         } else {
-            console.log("⚠️ Prix belges introuvables avec la structure du SPF.");
+            console.log("⚠️ Prix belges introuvables avec Energiafed.");
         }
     } catch (e) {
-        console.log("⚠️ Échec BEL via SPF, conservation de la mémoire.");
+        console.log("⚠️ Échec BEL via Energiafed, conservation de la mémoire.");
     }
-}
-
-fetchNationalPricesBackground();
-setInterval(fetchNationalPricesBackground, 6 * 60 * 60 * 1000);
 
 // --- GESTION DE L'ESPAGNE (En arrière-plan) ---
 let spainStationsCache = [];
